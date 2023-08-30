@@ -187,7 +187,6 @@ class single_data_run():
         while iter <  maxiter and not converged:
 
             p, adjoint_A, _ = self.adj_solve(m, u)
-            self.p = p
 
             # assemble matrix C
             Wum_equ, C_equ, Wmm_equ, M_equ = self.wf_matrices_setup(m,u,p)
@@ -205,7 +204,7 @@ class single_data_run():
             CT_p = dl.Vector()
             C.init_vector(CT_p,1)
             C.transpmult(p.vector(), CT_p)
-            print(np.linalg.norm(CT_p.get_local()))
+            # print(np.linalg.norm(CT_p.get_local()))
             MG = CT_p + self.R * m.vector()
             dl.solve(M, g, MG)
 
@@ -253,7 +252,9 @@ class single_data_run():
             # self.eigval_list.append(min(lmbda))
 
             # solve the Newton system H a_delta = - MG
+            # print(np.linalg.norm(MG.get_local()))
             solver.solve(m_delta, -MG)
+            # print(np.linalg.norm(m_delta.get_local()))
             total_cg_iter += Hess_Apply.cgiter
 
             # linesearch
@@ -539,8 +540,8 @@ class dual_data_run():
 
             C1.transpmult(p1.vector(), CT_p1)
             C2.transpmult(p2.vector(), CT_p2)
-            print(np.linalg.norm(CT_p1.get_local()))
-            print(np.linalg.norm(CT_p2.get_local()))
+            # print(np.linalg.norm(CT_p1.get_local()))
+            # print(np.linalg.norm(CT_p2.get_local()))
             CT_p.axpy(1., CT_p1)
             CT_p.axpy(1., CT_p2)
 
@@ -564,10 +565,8 @@ class dual_data_run():
         
             # P = self.R + self.gamma * M
             P = self.R + self.gamma * M
-            self.P = P
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
             Psolver.set_operator(P)
-            self.Psolver = Psolver
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -595,7 +594,9 @@ class dual_data_run():
             # print(min(lmbda))
 
             # solve the Newton system H a_delta = - MG
+            # print(np.linalg.norm(MG.get_local()))
             solver.solve(m_delta, -MG)
+            # print(np.linalg.norm(m_delta.get_local()))
             total_cg_iter += Hess_Apply.cgiter
 
             # linesearch
@@ -604,7 +605,7 @@ class dual_data_run():
             no_backtrack = 0
             m_prev.assign(m)
 
-            while descent == 0 and no_backtrack < 20:
+            while descent == 0 and no_backtrack < 10:
                 m.vector().axpy(alpha, m_delta )
 
                 # solve the state/forward problem
@@ -625,9 +626,6 @@ class dual_data_run():
                     alpha *= 0.5
                     m.assign(m_prev)  # reset a
             
-            if not no_backtrack < 20:
-                # print('no backtrack at all!!')
-                self.m_delta_val = m_delta
             # calculate sqrt(-G * D)
             graddir = math.sqrt(- MG.inner(m_delta) )
 

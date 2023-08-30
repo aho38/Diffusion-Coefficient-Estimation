@@ -137,12 +137,10 @@ class HessianOperatorNBC():
         
         # incremental forward
         rhs = -(self.C * v)
-#         bc_adj.apply(rhs)
         dl.solve (self.A, self.du, rhs)
         
         # incremental adjoint
         rhs = - (self.W * self.du)
-#         bc_adj.apply(rhs)
         dl.solve (self.adj_A, self.dp, rhs)
         
         # Reg/Prior term
@@ -248,8 +246,8 @@ class HessianOperator_comb():
         dl.solve (self.adj_A1, self.dp1, rhs)
 
         rhs = -(self.W * self.du2) #-  self.Wum2 * v
-        dl.solve (self.adj_A1, self.dp2, rhs)
-        
+        dl.solve (self.adj_A2, self.dp2, rhs)
+
         # Reg/Prior term
         self.R.mult(v,y)
         y.axpy(1.,self.Wmm2*v)
@@ -279,7 +277,7 @@ class HessianOperator_comb():
         dl.solve (self.adj_A1, self.dp1, rhs)
 
         rhs = -(self.W * self.du2) -  self.Wum2 * v
-        dl.solve (self.adj_A1, self.dp2, rhs)
+        dl.solve (self.adj_A2, self.dp2, rhs)
         
         # Reg/Prior term
         self.R.mult(v,y)
