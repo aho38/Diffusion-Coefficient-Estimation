@@ -42,6 +42,7 @@ class single_data_run():
         self.u_oce_val = dl.Constant(f'{oce_val - normalized_mean}')
         self.u_oce = oce_val
         self.normalized_mean = normalized_mean
+    
 
     def state_adj_str_setup(self, a_state_str, L_state_str, a_adj_str, L_adj_str):
         self.a_state_str, self.L_state_str = a_state_str, L_state_str
@@ -65,6 +66,13 @@ class single_data_run():
             f = dl.Function(self.Vu)
             f.vector().set_local(f_type[::-1])
         self.f = f
+    
+    def extra_f_setup(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def mtrue_setup(self,mtrue=None):
+        self.mtrue = mtrue
         
     def BC_setup(self,u0L, u0R):
         if self.bc_type == 'DBC':
@@ -114,9 +122,6 @@ class single_data_run():
             ):
         u = dl.Function(self.Vu)
         if self.bc_type == 'NBC':
-            # a_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
-            #         + self.f * self.omega_val * self.u_trial * self.u_test * ufl.dx
-            # L_state = self.f * self.omega_val * self.u_oce_val * self.u_test * ufl.dx  + self.j1 * self.u_test * self.ds(1) - self.j0 * self.u_test * self.ds(0)
             a_state = eval(self.a_state_str)
             L_state = eval(self.L_state_str)
 
@@ -124,9 +129,6 @@ class single_data_run():
             dl.solve (state_A, u.vector(), state_b)
         
         if self.bc_type == 'DBC':
-            # a_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
-            #          +self.f * self.omega_val * self.u_trial * self.u_test * ufl.dx
-            # L_state = self.f * self.omega_val * self.u_oce_val * self.u_test * ufl.dx
             a_state = eval(self.a_state_str)
             L_state = eval(self.L_state_str)
 
@@ -321,6 +323,8 @@ class single_data_run():
                     'u_oce': self.u_oce,
                     'gradnorm_list': gradnorm_list,
                     }
+        if self.mtrue is not None:
+            self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
         # except:
         #     print('Something Went Wrong')
         
@@ -386,22 +390,56 @@ class dual_data_run():
         self.W = dl.assemble(W_equ)
         self.R = dl.assemble(R_equ)
 
+    def state_adj_str_setup(self, a1_state_str, L1_state_str, a1_adj_str, L1_adj_str, a2_state_str, L2_state_str, a2_adj_str, L2_adj_str):
+        self.a1_state_str = a1_state_str
+        self.L1_state_str = L1_state_str
+        self.a1_adj_str = a1_adj_str
+        self.L1_adj_str = L1_adj_str
+
+        self.a2_state_str = a2_state_str
+        self.L2_state_str = L2_state_str
+        self.a2_adj_str = a2_adj_str
+        self.L2_adj_str = L2_adj_str
+
+        ## ======= Dirichlet BC ========
+        # a1_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
+        #         + self.f * self.omega_val1 * self.u_trial * self.u_test * ufl.dx
+        # L1_state = self.f * self.omega_val1 * self.u_oce_val1 * self.u_test * ufl.dx
+
+        # state_A1, state_b1 = dl.assemble_system (a1_state, L1_state, self.bc_state)
+        # dl.solve (state_A1, u1.vector(), state_b1)
+
+        ## ======= Neumann BC ========
+        # a2_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
+        #         + self.f * self.omega_val2 * self.u_trial * self.u_test * ufl.dx
+        # L2_state = self.f * self.omega_val2 * self.u_oce_val2 * self.u_test * ufl.dx  + self.j1 * self.u_test * self.ds(1) - self.j0 * self.u_test * self.ds(0)
+
+        ## ====== Dirichelt ========
+        # a_adj1 = ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx \
+        #         + self.f * self.omega_val1 * self.p_trial * self.p_test * ufl.dx
+        # L1_adj = -ufl.inner(u1 - self.ud1, self.p_test) * ufl.dx
+
+        # adjoint_A1, adjoint_RHS1 = dl.assemble_system(a_adj1, L1_adj, self.bc_adj)
+        # dl.solve(adjoint_A1, p1.vector(), adjoint_RHS1)
+        ## ====== Neumann   ========
+        # a_adj2 = ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx \
+        #         + self.f * self.omega_val2 * self.p_trial * self.p_test * ufl.dx
+        # L2_adj = -ufl.inner(u2 - self.ud2, self.p_test) * ufl.dx
+
     def fwd_solve(self,m):
         u1 = dl.Function(self.Vu)
         u2 = dl.Function(self.Vu)
 
         ## ======= Dirichlet BC ========
-        a1_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
-                + self.f * self.omega_val1 * self.u_trial * self.u_test * ufl.dx
-        L1_state = self.f * self.omega_val1 * self.u_oce_val1 * self.u_test * ufl.dx
+        a1_state = eval(self.a1_state_str)
+        L1_state = eval(self.L1_state_str)
 
         state_A1, state_b1 = dl.assemble_system (a1_state, L1_state, self.bc_state)
         dl.solve (state_A1, u1.vector(), state_b1)
 
         ## ======= Neumann BC ========
-        a2_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
-                + self.f * self.omega_val2 * self.u_trial * self.u_test * ufl.dx
-        L2_state = self.f * self.omega_val2 * self.u_oce_val2 * self.u_test * ufl.dx  + self.j1 * self.u_test * self.ds(1) - self.j0 * self.u_test * self.ds(0)
+        a2_state = eval(self.a2_state_str)
+        L2_state = eval(self.L2_state_str)
 
         state_A2, state_b2 = dl.assemble_system (a2_state, L2_state)
         dl.solve (state_A2, u2.vector(), state_b2)
@@ -414,21 +452,22 @@ class dual_data_run():
         p2 = dl.Function(self.Vu)
         
         ## ====== Dirichelt ========
-        a_adj1 = ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx \
-                + self.f * self.omega_val1 * self.p_trial * self.p_test * ufl.dx
-        L1_adj = -ufl.inner(u1 - self.ud1, self.p_test) * ufl.dx
+        a_adj1 = eval(self.a1_adj_str)
+        L1_adj = eval(self.L1_adj_str)
 
         adjoint_A1, adjoint_RHS1 = dl.assemble_system(a_adj1, L1_adj, self.bc_adj)
         dl.solve(adjoint_A1, p1.vector(), adjoint_RHS1)
         ## ====== Neumann   ========
-        a_adj2 = ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx \
-                + self.f * self.omega_val2 * self.p_trial * self.p_test * ufl.dx
-        L2_adj = -ufl.inner(u2 - self.ud2, self.p_test) * ufl.dx
+        a_adj2 = eval(self.a2_adj_str)
+        L2_adj = eval(self.L2_adj_str)
 
         adjoint_A2, adjoint_RHS2 = dl.assemble_system(a_adj2, L2_adj)
         dl.solve(adjoint_A2, p2.vector(), adjoint_RHS2)
 
         return p1, p2, adjoint_A1, adjoint_RHS1, adjoint_A2, adjoint_RHS2
+
+    def mtrue_setup(self,mtrue=None):
+        self.mtrue = mtrue
 
     def BC_setup(self, u1L_Dirichlet, u1R_Dirichlet, u2L_Neumann, u2R_Neumann):
         self.DBC_setup(u1L_Dirichlet, u1R_Dirichlet)
@@ -477,6 +516,10 @@ class dual_data_run():
             f = dl.Function(self.Vu)
             f.vector().set_local(f_type[::-1])
         self.f = f
+
+    def extra_f_setup(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def opt_loop(self, 
                 m, #'diffusion coef',
@@ -664,6 +707,9 @@ class dual_data_run():
                     'gradnorm': gradnorm,
                     'gradnorm_list': gradnorm_list,
                     }
+
+        if self.mtrue is not None:
+            self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
         
         return m, u1, u2
 

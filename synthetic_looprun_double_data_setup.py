@@ -28,7 +28,7 @@ class single_data_loop_run():
         self.oce_val = oce_val
         now = datetime.now()
         dt_string = now.strftime("%Y%m%d-%H%M%S")
-        self.save_path = increment_path(f'./log/single_data_{bc_type}_{dt_string}', mkdir=True)
+        self.save_path = increment_path(f'./log/TEST_single_data_{bc_type}_{dt_string}', mkdir=True)
         if os.path.exists(self.save_path / 'results.csv'):
             pass
         else:
@@ -50,19 +50,34 @@ class single_data_loop_run():
             run.misfit_reg_setup(gamma)
 
             # set up state and adjoint for fwd solve
-            if self.BC_type == 'DBC':
+            if bc_type == 'DBC':
                 a_state_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx+self.f * self.omega_val * self.u_trial * self.u_test * ufl.dx'
-                L_state_str = 'self.f * self.omega_val * self.u_oce_val * self.u_test * ufl.dx'
+                L_state_str = 'self.f * self.omega_val * self.u_oce_val * self.u_test * ufl.dx + self.g * self.u_test * ufl.dx'
                 a_adj_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx + self.f * self.omega_val * self.p_trial * self.p_test * ufl.dx'
                 L_adj_str = '-ufl.inner(u - self.ud, self.p_test) * ufl.dx'
-                run.state_adj_str_setup(a_state_str, L_state_str, a_adj_str, L_adj_str)
-            elif self.BC_type == 'NBC':
+            elif bc_type == 'NBC':
                 a_state_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx + self.f * self.omega_val * self.u_trial * self.u_test * ufl.dx'
-                L_state_str = 'self.f * self.omega_val * self.u_oce_val * self.u_test * ufl.dx  + self.j1 * self.u_test * self.ds(1) - self.j0 * self.u_test * self.ds(0)'
+                L_state_str = 'self.f * self.omega_val * self.u_oce_val * self.u_test * ufl.dx + self.g * self.u_test * ufl.dx  + self.j1 * self.u_test * self.ds(1) - self.j0 * self.u_test * self.ds(0)'
                 a_adj_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx + self.f * self.omega_val * self.p_trial * self.p_test * ufl.dx'
                 L_adj_str = '-ufl.inner(u - self.ud, self.p_test) * ufl.dx'
-                run.state_adj_str_setup(a_state_str, L_state_str, a_adj_str, L_adj_str)
+            run.state_adj_str_setup(a_state_str, L_state_str, a_adj_str, L_adj_str)
             
+
+            from numpy import cos, sin, exp, pi
+            x = np.linspace(self.a,self.b,self.nx+1)
+
+            y = sin(2* pi * x)
+            y_lin = -2 * pi * x +  pi
+            y1 = y.copy()
+            y2 = y.copy()
+            if bc_type == 'DBC':
+                y1[x>=0.5] = y_lin[x>=0.5]
+            elif bc_type == 'NBC':
+                y1[x<=0.5] = y_lin[x<=0.5]
+            else:
+                raise ValueError(f'Unknown BC type: {bc_type}')
+            dy1 = np.gradient(y1,x,edge_order=2)
+
             # set up forcing term
             from utils.general import normalize_function
             c_1 = 10
@@ -70,32 +85,40 @@ class single_data_loop_run():
             gauss_var = 1/10
             f_str =  f'std::exp(-pow(x[0] - {peak_loc}, 2) / {gauss_var}) * {c_1}'
             f = normalize_function(f_str, run.Vm, ufl.dx)
+            forcing_array = f.compute_vertex_values()
             run.f_setup(f.compute_vertex_values())
+
+            # The true and inverted parameter
+            def gaussian(x, mean, std):
+                return np.exp(-np.power(x - mean, 2.) / (2 * np.power(std, 2.)))
+
+            mtrue_array = gaussian(x, 0.2, 0.1) + gaussian(x, 0.8, 0.1)
+            m_true = dl.Function(run.Vm)
+            m_true.vector().set_local(mtrue_array[::-1])
+            run.mtrue_setup(m_true)
 
             # set up boundary conditions
             from numpy import cos, pi, sin, exp
             if self.BC_type == 'DBC':
-                u0L = 0.0
-                u0R = 1.0
+                uL = y1[0]
+                uR = y1[-1]
             elif self.BC_type == 'NBC':
-                u0L = 1.0
-                u0R = 0.1
+                uL = dy1[0] * np.exp(mtrue_array[0])
+                uR = dy1[-1] * np.exp(mtrue_array[-1])
             else:
                 raise ValueError(f'Unknown BC type: {self.BC_type}')
-            run.BC_setup(u0L, u0R)
+            run.BC_setup(uL, uR)
 
-            # The true and inverted parameter
-            peak_loc = 0.4
-            gauss_var = 30
-            mtrue_expression_str = f'std::log(1.+ 10.*std::exp(-pow(x[0] - {peak_loc}, 2) * {gauss_var}))'
-            # mtrue_expression_str = 'std::x[0]*sin(x[0])'
-            mtrue_expression = dl.Expression(mtrue_expression_str, degree=5)
-            mtrue = m =  dl.interpolate(mtrue_expression,run.Vm)
-            run.mtrue_setup(mtrue)
+            g_array = - np.gradient( np.exp(mtrue_array) * np.gradient(y1, x, edge_order=2) , x, edge_order=2) \
+            + forcing_array * omega * (y1 - oce_val)
+
+            g = dl.Function(run.Vu)
+            g.vector().set_local(g_array[::-1])
+            run.extra_f_setup(g = g)
 
             np.random.seed(0)
-            noise_level = 0.05
-            ud, goal_A, goal_b = run.fwd_solve(m)
+            noise_level = 0.03
+            ud, goal_A, goal_b = run.fwd_solve(run.mtrue)
             utrue_array = ud.compute_vertex_values()
             from utils.general import apply_noise
             apply_noise(noise_level, ud, goal_A)
@@ -225,7 +248,7 @@ if __name__ == '__main__':
     nx = 32
     a = 0.0
     b = 1.0
-    bc_type = 'NBC'
+    bc_type = 'DBC'
     omega = 10
     oce_val = 0.0
 
