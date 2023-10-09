@@ -75,8 +75,8 @@ class single_data_loop_run():
             # set up boundary conditions
             from numpy import cos, pi, sin, exp
             if self.BC_type == 'DBC':
-                u0L = 0.0
-                u0R = 1.0
+                u0L = 1.0
+                u0R = 0.0
             elif self.BC_type == 'NBC':
                 u0L = 1.0
                 u0R = 0.1
@@ -94,7 +94,7 @@ class single_data_loop_run():
             run.mtrue_setup(mtrue)
 
             np.random.seed(0)
-            noise_level = 0.05
+            noise_level = 0.02
             ud, goal_A, goal_b = run.fwd_solve(m)
             utrue_array = ud.compute_vertex_values()
             from utils.general import apply_noise
@@ -113,6 +113,8 @@ class single_data_loop_run():
             maxiter=100
             m, u = run.opt_loop(m, tol, c, maxiter)
 
+            if hasattr(self, 'noise_level'):
+                run.save_dict['noise_level'] = self.noise_level
 
             # save results
             with open(self.save_path / 'results.csv', 'a') as f:
@@ -221,11 +223,11 @@ class double_data_loop_run():
 if __name__ == '__main__':
 
 
-    gamma_list = np.logspace(-8, -3, 50)
+    gamma_list = np.logspace(-7, -4, 50)
     nx = 32
     a = 0.0
     b = 1.0
-    bc_type = 'NBC'
+    bc_type = 'DBC'
     omega = 10
     oce_val = 0.0
 

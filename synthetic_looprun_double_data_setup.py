@@ -10,7 +10,8 @@ import os
 from csv import DictWriter
 from datetime import datetime
 
-
+def gaussian(x, mean, std):
+    return np.exp(-np.power(x - mean, 2.) / (2 * np.power(std, 2.)))
 
 class single_data_loop_run():
     def __init__(self,
@@ -117,11 +118,11 @@ class single_data_loop_run():
             run.extra_f_setup(g = g)
 
             np.random.seed(0)
-            noise_level = 0.03
+            self.noise_level = 0.03
             ud, goal_A, goal_b = run.fwd_solve(run.mtrue)
             utrue_array = ud.compute_vertex_values()
             from utils.general import apply_noise
-            apply_noise(noise_level, ud, goal_A)
+            apply_noise(self.noise_level, ud, goal_A)
             run.data_setup(ud_array = ud.compute_vertex_values(),normalize = False)
 
             #initial guess m
@@ -135,6 +136,10 @@ class single_data_loop_run():
             c = 1e-4
             maxiter=100
             m, u = run.opt_loop(m, tol, c, maxiter)
+
+
+            if hasattr(self, 'noise_level'):
+                run.save_dict['noise_level'] = self.noise_level
 
 
             # save results
@@ -186,6 +191,20 @@ class double_data_loop_run():
                 beta2=beta2
             )
 
+            ## ======== set up the state and adjoint str ========
+            a1_state_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx + self.f * self.omega_val1 * self.u_trial * self.u_test * ufl.dx'
+            L1_state_str = 'self.f * self.omega_val1 * self.u_oce_val1 * self.u_test * ufl.dx + self.g1 * self.u_test * ufl.dx'
+            a1_adj_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx + self.f * self.omega_val1 * self.p_trial * self.p_test * ufl.dx'
+            L1_adj_str = '-ufl.inner(u1 - self.ud1, self.p_test) * ufl.dx'
+
+            a2_state_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx + self.f * self.omega_val2 * self.u_trial * self.u_test * ufl.dx'
+            L2_state_str = 'self.f * self.omega_val2 * self.u_oce_val2 * self.u_test * ufl.dx + self.g2 * self.u_test * ufl.dx  + self.j1 * self.u_test * self.ds(1) - self.j0 * self.u_test * self.ds(0)'
+            a2_adj_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx + self.f * self.omega_val2 * self.p_trial * self.p_test * ufl.dx'
+            L2_adj_str = '-ufl.inner(u2 - self.ud2, self.p_test) * ufl.dx'
+
+            run.state_adj_str_setup(a1_state_str, L1_state_str, a1_adj_str, L1_adj_str, a2_state_str, L2_state_str, a2_adj_str, L2_adj_str)
+
+            ## ======== set up forcing term f(x) ========
             from utils.general import normalize_function
             c_1 = 10
             peak_loc = 0.3
@@ -200,17 +219,15 @@ class double_data_loop_run():
             u2R_N = 0.1
             run.BC_setup(u1L_D, u1R_D, u2L_N, u2R_N)
 
-            # The true and inverted parameter
-            peak_loc = 0.4
-            gauss_var = 30
-            mtrue_expression_str = f'std::log(1.+ 10.*std::exp(-pow(x[0] - {peak_loc}, 2) * {gauss_var}))'
-            # mtrue_expression_str = 'std::x[0]*sin(x[0])'
-            mtrue_expression = dl.Expression(mtrue_expression_str, degree=5)
-            mtrue = m =  dl.interpolate(mtrue_expression,run.Vm)
-            run.mtrue_setup(mtrue)
+            # ====== set up true diffusion
+            x = np.linspace(self.a,self.b,self.nx+1)
+            mtrue_array = gaussian(x, 0.2, 0.1) + gaussian(x, 0.8, 0.1)
+            m_true = dl.Function(run.Vm)
+            m_true.vector().set_local(mtrue_array[::-1])
+            run.mtrue_setup(m_true)
 
             # set up data with noise
-            noise_level = 0.01
+            noise_level = 0.03
             ud1, ud2, goal_A1, goal_b1, goal_A2, goal_b2 = run.fwd_solve(m)
             utrue1_array = ud1.compute_vertex_values()
             utrue2_array = ud2.compute_vertex_values()
@@ -232,6 +249,9 @@ class double_data_loop_run():
             maxiter=100
             m, u1, u2 = run.opt_loop(m, tol, c, maxiter)
 
+            if hasattr(self, 'noise_level'):
+                run.save_dict['noise_level'] = self.noise_level
+
             # save results
             with open(self.save_path / 'results.csv', 'a') as f:
                 writer_object = DictWriter(f, run.save_dict.keys())
@@ -244,7 +264,7 @@ class double_data_loop_run():
 if __name__ == '__main__':
 
 
-    gamma_list = np.logspace(-8, -3, 50)
+    gamma_list = np.logspace(-6, -3, 50)
     nx = 32
     a = 0.0
     b = 1.0

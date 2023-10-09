@@ -13,6 +13,7 @@ from pathlib import Path
 import logging
 import math
 import matplotlib.pyplot as plt
+from scipy.optimize import minimize
 from utils.general import increment_path, DboundaryL, DboundaryR, Dboundary, NboundaryL, NboundaryR, data_normalization
 
 dl.set_log_active(False)
@@ -350,15 +351,14 @@ class dual_data_run():
                 nx, 
                 a, 
                 b,
-                gamma,
+                gamma1,
+                gamma2,
                 omega1,
                 omega2,
                 oce_val1,
                 oce_val2,
                 normalized_mean1,
                 normalized_mean2,
-                beta1,
-                beta2,
                 func='Lagrange',):
         self.a, self. b, self.nx = a, b, nx
         self.mesh = dl.IntervalMesh(nx, a, b)
@@ -367,25 +367,30 @@ class dual_data_run():
         self.u_trial, self.p_trial, self.m_trial = dl.TrialFunction(self.Vu), dl.TrialFunction(self.Vu), dl.TrialFunction(self.Vm)
         self.u_test, self.p_test, self.m_test = dl.TestFunction(self.Vu), dl.TestFunction(self.Vu), dl.TestFunction(self.Vm)
 
-        self.gamma = gamma
         self.omega_val1 = dl.Constant(omega1)
         self.omega_val2 = dl.Constant(omega2)
         self.omega1 = omega1
         self.omega2 = omega2
         self.u_oce_val1 = dl.Constant(f'{oce_val1 - normalized_mean1}')
-        self.u_oce = oce_val1
+        self.u_oce1 = oce_val1
         self.u_oce_val2 = dl.Constant(f'{oce_val2 - normalized_mean2}')
-        self.u_oce = oce_val2
+        self.u_oce2 = oce_val2
         self.normalized_mean1 = normalized_mean1
         self.normalized_mean2 = normalized_mean2
 
+        self.gamma1 = gamma1
+        self.gamma2 = gamma2
+
+
+
+    def misfit_reg_setup(self, beta1, beta2):
         # constant in from of the misfit and weakform
+        self.gamma = np.exp(beta1*np.log(self.gamma1) + beta2*np.log(self.gamma2))
         self.beta1 = dl.Constant(beta1)
         self.beta2 = dl.Constant(beta2)
-
         # weak for for setting up the misfit and regularization compoment of the cost
-        W_equ   = ufl.inner(self.u_trial, self.u_test) * ufl.dx
-        R_equ   = gamma * ufl.inner(ufl.grad(self.m_trial), ufl.grad(self.m_test)) * ufl.dx
+        W_equ   = ufl.inner(self.u_trial, self.u_test) * ufl.dx(self.mesh)
+        R_equ   = self.gamma * ufl.inner(ufl.grad(self.m_trial), ufl.grad(self.m_test)) * ufl.dx(self.mesh)
 
         self.W = dl.assemble(W_equ)
         self.R = dl.assemble(R_equ)
@@ -618,28 +623,7 @@ class dual_data_run():
             solver.parameters["zero_initial_guess"] = True
             solver.parameters["print_level"] = -1
             
-            
-            # Plotting the Eigenvalues
-            k = self.nx
-            p = self.nx
-            # print( "Double Pass Algorithm. Requested eigenvectors: {0}; Oversampling {1}.".format(k,p) )
-
-            # Omega = MultiVector(m.vector(), k+p)
-            # parRandom.normal(1., Omega)
-            # lmbda, evecs = doublePassG(Hess_Apply, P, Psolver, Omega, k)
-            # self.lmbda_val = lmbda
-
-            # plt.plot(range(0,k), lmbda, 'b*', range(0,k+1), np.ones(k+1), '-r')
-            # plt.yscale('log')
-            # plt.xlabel('number')
-            # plt.ylabel('eigenvalue')
-            # plt.show()
-            # print(min(lmbda))
-
-            # solve the Newton system H a_delta = - MG
-            # print(np.linalg.norm(MG.get_local()))
             solver.solve(m_delta, -MG)
-            # print(np.linalg.norm(m_delta.get_local()))
             total_cg_iter += Hess_Apply.cgiter
 
             # linesearch
@@ -669,6 +653,32 @@ class dual_data_run():
                     alpha *= 0.5
                     m.assign(m_prev)  # reset a
             
+            ## Optimization of beta1 and beta2
+            diff1 = u1.vector() - self.ud1.vector()
+            diff2 = u2.vector() - self.ud2.vector()
+            diff1_scalar = diff1.inner(self.W * diff1)
+            diff2_scalar = diff2.inner(self.W * diff2)
+
+            reg_for_beta_opt = dl.assemble(ufl.inner(ufl.grad(m), ufl.grad(m)) * ufl.dx)
+
+            def betas_func(x):
+                gamma = np.exp(x[0]*np.log(self.gamma1) + x[1]*np.log(self.gamma2))
+                misfit_val = x[0] * diff1_scalar + x[1] * diff2_scalar
+                reg_val = gamma * reg_for_beta_opt
+                return 0.5 * misfit_val + 0.5 * reg_val
+            
+            def constraint(x):
+                return x[0] + x[1] - 1
+            bounds = [(0.1, 0.9), (0.1, 0.9)]
+            constraints = ({'type': 'eq', 'fun': constraint})
+            x0 = np.array([self.beta1.values()[0], self.beta2.values()[0]])
+            res = minimize(betas_func, x0, tol=1e-12, constraints=constraints, bounds=bounds)
+            beta1, beta2 = res.x
+            print("beta1, beta2: ", res.x)
+            print(sum(res.x))
+            self.misfit_reg_setup(beta1=0.5, beta2=0.5)
+
+
             # calculate sqrt(-G * D)
             graddir = math.sqrt(- MG.inner(m_delta) )
 
@@ -706,6 +716,8 @@ class dual_data_run():
                     'forcing': self.f.compute_vertex_values(self.mesh).tolist(),
                     'gradnorm': gradnorm,
                     'gradnorm_list': gradnorm_list,
+                    'u_oce1': self.u_oce1,
+                    'u_oce2': self.u_oce2,
                     }
 
         if self.mtrue is not None:
