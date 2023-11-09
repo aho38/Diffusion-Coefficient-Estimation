@@ -144,9 +144,6 @@ class single_data_run():
                 ):
         p = dl.Function(self.Vu)
         # weak form for setting up the adjoint equation
-        # a_adj = ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx \
-        #         + self.f * self.omega_val * self.p_trial * self.p_test * ufl.dx
-        # L_adj = -ufl.inner(u - self.ud, self.p_test) * ufl.dx
         a_adj = eval(self.a_adj_str)
         L_adj = eval(self.L_adj_str)
 
@@ -197,7 +194,7 @@ class single_data_run():
 
             # assemble matrix M
             if iter == 1:
-                M = dl.assemble(M_equ) 
+                self.M = dl.assemble(M_equ) 
 
             # assemble W_ua and R
             Wum = dl.assemble (Wum_equ)
@@ -209,7 +206,7 @@ class single_data_run():
             C.transpmult(p.vector(), CT_p)
             # print(np.linalg.norm(CT_p.get_local()))
             MG = CT_p + self.R * m.vector()
-            dl.solve(M, g, MG)
+            dl.solve(self.M, g, MG)
 
             # calculate the norm of the gradient
             grad2 = g.inner(MG)
@@ -224,10 +221,12 @@ class single_data_run():
             if self.bc_type == 'DBC':
                 from utils.hessian_operator import HessianOperator
                 Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=(iter<6) )
+                self.Hess = Hess_Apply
             if self.bc_type == 'NBC':
                 from utils.hessian_operator import HessianOperatorNBC as HessianOperator
                 Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, gauss_newton_approx=(iter<6) )
-            P = self.R + self.gamma * M
+                self.Hess = Hess_Apply
+            P = self.R + self.gamma * self.M
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
             Psolver.set_operator(P)
 
@@ -242,20 +241,6 @@ class single_data_run():
             k = self.nx
             p = self.nx
 
-            # print( "Double Pass Algorithm. Requested eigenvectors: {0}; Oversampling {1}.".format(k,p) )
-            # Omega = MultiVector(m.vector(), k+p)
-            # parRandom.normal(1., Omega)
-            # lmbda, evecs = doublePassG(Hess_Apply, P, Psolver, Omega, k)
-            # plt.plot(range(0,k), lmbda, 'b*', range(0,k+1), np.ones(k+1), '-r')
-            # plt.yscale('log')
-            # plt.xlabel('number')
-            # plt.ylabel('eigenvalue')
-            # plt.show()
-            # print('Min Eigenvalue: ', min(lmbda))
-            # self.eigval_list.append(min(lmbda))
-
-            # solve the Newton system H a_delta = - MG
-            # print(np.linalg.norm(MG.get_local()))
             solver.solve(m_delta, -MG)
             # print(np.linalg.norm(m_delta.get_local()))
             total_cg_iter += Hess_Apply.cgiter
@@ -285,7 +270,6 @@ class single_data_run():
                     no_backtrack += 1
                     alpha *= 0.5
                     m.assign(m_prev)  # reset a
-
 
             # calculate sqrt(-G * D)
             graddir = math.sqrt(- MG.inner(m_delta) )
@@ -324,7 +308,7 @@ class single_data_run():
                     'u_oce': self.u_oce,
                     'gradnorm_list': gradnorm_list,
                     }
-        if self.mtrue is not None:
+        if hasattr(self,'mtrue'):
             self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
         # except:
         #     print('Something Went Wrong')
@@ -346,6 +330,18 @@ class single_data_run():
         misfit = diff.inner(self.W * diff)
         return [0.5 * reg + 0.5 * misfit, misfit, reg]
     
+    def eigenvalue_request(self, m, p=20):
+        k = self.nx
+        P = self.R + self.gamma * self.M
+        Psolver = dl.PETScKrylovSolver("cg", amg_method())
+        Psolver.set_operator(P)
+
+        import hippylib as hp
+        Omega = hp.MultiVector(m.vector(), k + p)
+        hp.parRandom.normal(1., Omega)
+        lmbda, evecs = hp.doublePassG(self.Hess, P, Psolver, Omega, k)
+        return lmbda, evecs
+    
 class dual_data_run():
     def __init__(self, 
                 nx, 
@@ -359,7 +355,9 @@ class dual_data_run():
                 oce_val2,
                 normalized_mean1,
                 normalized_mean2,
-                func='Lagrange',):
+                func='Lagrange',
+                save_path=None,
+                ):
         self.a, self. b, self.nx = a, b, nx
         self.mesh = dl.IntervalMesh(nx, a, b)
         self.Vm = self.Vu = dl.FunctionSpace(self.mesh, func, 1)
@@ -380,12 +378,19 @@ class dual_data_run():
 
         self.gamma1 = gamma1
         self.gamma2 = gamma2
+        ## ===== path for saving results and optimization data ======
+        self.save_path = save_path
 
 
+    def gamma_setup(self, beta1, beta2, gamma=None):
+        if gamma is not None:
+            self.gamma = gamma
+        else:
+            self.gamma = np.exp(beta1*np.log(self.gamma1) + beta2*np.log(self.gamma2))
 
-    def misfit_reg_setup(self, beta1, beta2):
+    def misfit_reg_setup(self, beta1, beta2, gamma = None):
         # constant in from of the misfit and weakform
-        self.gamma = np.exp(beta1*np.log(self.gamma1) + beta2*np.log(self.gamma2))
+        self.gamma_setup(beta1, beta2, gamma)
         self.beta1 = dl.Constant(beta1)
         self.beta2 = dl.Constant(beta2)
         # weak for for setting up the misfit and regularization compoment of the cost
@@ -405,31 +410,6 @@ class dual_data_run():
         self.L2_state_str = L2_state_str
         self.a2_adj_str = a2_adj_str
         self.L2_adj_str = L2_adj_str
-
-        ## ======= Dirichlet BC ========
-        # a1_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
-        #         + self.f * self.omega_val1 * self.u_trial * self.u_test * ufl.dx
-        # L1_state = self.f * self.omega_val1 * self.u_oce_val1 * self.u_test * ufl.dx
-
-        # state_A1, state_b1 = dl.assemble_system (a1_state, L1_state, self.bc_state)
-        # dl.solve (state_A1, u1.vector(), state_b1)
-
-        ## ======= Neumann BC ========
-        # a2_state = ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx\
-        #         + self.f * self.omega_val2 * self.u_trial * self.u_test * ufl.dx
-        # L2_state = self.f * self.omega_val2 * self.u_oce_val2 * self.u_test * ufl.dx  + self.j1 * self.u_test * self.ds(1) - self.j0 * self.u_test * self.ds(0)
-
-        ## ====== Dirichelt ========
-        # a_adj1 = ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx \
-        #         + self.f * self.omega_val1 * self.p_trial * self.p_test * ufl.dx
-        # L1_adj = -ufl.inner(u1 - self.ud1, self.p_test) * ufl.dx
-
-        # adjoint_A1, adjoint_RHS1 = dl.assemble_system(a_adj1, L1_adj, self.bc_adj)
-        # dl.solve(adjoint_A1, p1.vector(), adjoint_RHS1)
-        ## ====== Neumann   ========
-        # a_adj2 = ufl.inner(ufl.exp(m) * ufl.grad(self.p_trial), ufl.grad(self.p_test)) * ufl.dx \
-        #         + self.f * self.omega_val2 * self.p_trial * self.p_test * ufl.dx
-        # L2_adj = -ufl.inner(u2 - self.ud2, self.p_test) * ufl.dx
 
     def fwd_solve(self,m):
         u1 = dl.Function(self.Vu)
@@ -531,6 +511,9 @@ class dual_data_run():
                 tol, #'tolerance of grad',
                 c, #'constant of armijo linesearch',
                 maxiter, #'maximum newton"s step',
+                save_opt_log = True,
+                plot_opt_step = False,
+                plot_eigval = False,
                 ):
         # initialize iter counters
         iter = 1
@@ -548,6 +531,22 @@ class dual_data_run():
         self.R.init_vector(m_delta,0)
         self.R.init_vector(g,0)
 
+        ## create log path for optimization
+        if save_opt_log:
+            log_path = self.save_path / 'log_opt/'
+            if not log_path.exists():
+                log_path.mkdir()
+            
+            opt_csv_name = f'{self.gamma:1.3e}_opt_log.csv'
+            csv_path = log_path / opt_csv_name
+            if os.path.exists(csv_path):
+                pass
+            else:
+                import csv
+                with open(csv_path, 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
+
         print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
         gradnorm_list = []
         # try:
@@ -564,7 +563,7 @@ class dual_data_run():
 
             # assemble matrix M
             if iter == 1:
-                M = dl.assemble(M_equ)
+                self.M = dl.assemble(M_equ)
             
             # assemble W_ua and R
             Wum1 = dl.assemble (Wum_equ1)
@@ -594,7 +593,7 @@ class dual_data_run():
             CT_p.axpy(1., CT_p2)
 
             MG = CT_p + self.R * m.vector()
-            dl.solve(M, g, MG)
+            dl.solve(self.M, g, MG)
 
             # calculate the norm of the gradient
             grad2 = g.inner(MG)
@@ -609,12 +608,21 @@ class dual_data_run():
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
             Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, 
                                          Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter<6))
-            self.Hess_Apply = Hess_Apply
+            self.Hess = Hess_Apply
         
             # P = self.R + self.gamma * M
-            P = self.R + self.gamma * M
+            P = self.R + self.gamma * self.M
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
             Psolver.set_operator(P)
+
+            if iter == 1: 
+                k = self.nx
+                p = 20
+
+                import hippylib as hp
+                Omega = hp.MultiVector(m.vector(), k + p)
+                hp.parRandom.normal(1., Omega)
+                self.lmbda, _ = hp.doublePassG(Hess_Apply, P, Psolver, Omega, k)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -653,29 +661,44 @@ class dual_data_run():
                     alpha *= 0.5
                     m.assign(m_prev)  # reset a
             
-            ## Optimization of beta1 and beta2
-            diff1 = u1.vector() - self.ud1.vector()
-            diff2 = u2.vector() - self.ud2.vector()
-            diff1_scalar = diff1.inner(self.W * diff1)
-            diff2_scalar = diff2.inner(self.W * diff2)
-
-            reg_for_beta_opt = dl.assemble(ufl.inner(ufl.grad(m), ufl.grad(m)) * ufl.dx)
-
-            def betas_func(x):
-                gamma = np.exp(x[0]*np.log(self.gamma1) + x[1]*np.log(self.gamma2))
-                misfit_val = x[0] * diff1_scalar + x[1] * diff2_scalar
-                reg_val = gamma * reg_for_beta_opt
-                return 0.5 * misfit_val + 0.5 * reg_val
+            if plot_eigval:
+                lmbda, evec = self.eigenvalue_request(m)
+                idx = 10
+                # plt.semilogy(lmbda[:idx], '*')
+                plt.plot(evec[0])
+                plt.show()
             
-            def constraint(x):
-                return x[0] + x[1] - 1
-            bounds = [(0.1, 0.9), (0.1, 0.9)]
-            constraints = ({'type': 'eq', 'fun': constraint})
-            x0 = np.array([self.beta1.values()[0], self.beta2.values()[0]])
-            res = minimize(betas_func, x0, tol=1e-12, constraints=constraints, bounds=bounds)
-            beta1, beta2 = res.x
-            print("beta1, beta2: ", res.x)
-            print(sum(res.x))
+            ## Plot opt step
+            if plot_opt_step:
+                from utils.plot import plot_step
+                plot_step(u1.compute_vertex_values(), u2.compute_vertex_values(), 
+                          self.ud1.compute_vertex_values(), self.ud2.compute_vertex_values(), 
+                          m.compute_vertex_values(), self.mtrue.compute_vertex_values(), self.gamma,0.5,0.5)
+                print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+            
+            ## Optimization of beta1 and beta2
+            # diff1 = u1.vector() - self.ud1.vector()
+            # diff2 = u2.vector() - self.ud2.vector()
+            # diff1_scalar = diff1.inner(self.W * diff1)
+            # diff2_scalar = diff2.inner(self.W * diff2)
+
+            # reg_for_beta_opt = dl.assemble(ufl.inner(ufl.grad(m), ufl.grad(m)) * ufl.dx)
+
+            # def betas_func(x):
+            #     gamma = np.exp(x[0]*np.log(self.gamma1) + x[1]*np.log(self.gamma2))
+            #     misfit_val = x[0] * diff1_scalar + x[1] * diff2_scalar
+            #     reg_val = gamma * reg_for_beta_opt
+            #     return 0.5 * misfit_val + 0.5 * reg_val
+            
+            # def constraint(x):
+            #     return x[0] + x[1] - 1
+            # bounds = [(0.1, 0.9), (0.1, 0.9)]
+            # constraints = ({'type': 'eq', 'fun': constraint})
+            # x0 = np.array([self.beta1.values()[0], self.beta2.values()[0]])
+            # res = minimize(betas_func, x0, tol=1e-12, constraints=constraints, bounds=bounds)
+            # beta1, beta2 = res.x
+            # print("beta1, beta2: ", res.x)
+            # print(sum(res.x))
             self.misfit_reg_setup(beta1=0.5, beta2=0.5)
 
 
@@ -684,10 +707,12 @@ class dual_data_run():
 
             sp = ""
             gradnorm_list += [gradnorm]
-            # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
-            print( "%2d %2s %2d %3s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %1.2e %1s %5.3e" % \
-                (iter, sp, Hess_Apply.cgiter, sp, cost_new, sp, misfit_new, sp, reg_new, sp, \
-                graddir, sp, gradnorm, sp, alpha, sp, tolcg) )
+            # print opt log and write opt log
+            if save_opt_log:
+                with open(csv_path, 'a') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
+            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:3d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
 
             if alpha < 1e-2:
                 alpha_iter += 1
@@ -743,6 +768,20 @@ class dual_data_run():
         diff1 = u1.vector() - self.ud1.vector()
         diff2 = u2.vector() - self.ud2.vector()
 
+        beta1 = self.beta1.values().item()
+        beta2 = self.beta2.values().item()
         reg = m.vector().inner(self.R*m.vector())
-        misfit = self.beta1.values() * diff1.inner(self.W * diff1) + self.beta2.values() * diff2.inner(self.W * diff2)
+        misfit = beta1 * diff1.inner(self.W * diff1) + beta2 * diff2.inner(self.W * diff2)
         return [0.5 * reg + 0.5 * misfit, misfit, reg]
+
+    def eigenvalue_request(self, m, p=20):
+        k = self.nx
+        P = self.R + self.gamma * self.M * 1e-3
+        Psolver = dl.PETScKrylovSolver("cg", amg_method())
+        Psolver.set_operator(P)
+
+        import hippylib as hp
+        Omega = hp.MultiVector(m.vector(), k + p)
+        hp.parRandom.normal(1., Omega)
+        lmbda, evecs = hp.doublePassG(self.Hess, P, Psolver, Omega, k)
+        return lmbda, evecs
