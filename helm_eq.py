@@ -163,6 +163,7 @@ class single_data_run():
                 tol, #'tolerance of grad',
                 c, #'constant of armijo linesearch',
                 maxiter, #'maximum newton"s step',
+                plot_opt_step = False,
                 ):
         # initialize iter counters
         iter = 1
@@ -273,6 +274,13 @@ class single_data_run():
 
             # calculate sqrt(-G * D)
             graddir = math.sqrt(- MG.inner(m_delta) )
+
+            if plot_opt_step:
+                from utils.plot import plot_step_single
+                plot_step_single(u.compute_vertex_values(), self.ud.compute_vertex_values(), 
+                          m.compute_vertex_values(), self.mtrue.compute_vertex_values(), self.gamma)
+                print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+
 
             sp = ""
             gradnorm_list += [gradnorm]
@@ -597,12 +605,14 @@ class dual_data_run():
 
             # calculate the norm of the gradient
             grad2 = g.inner(MG)
-            gradnorm = math.sqrt(grad2)
+            gradnorm = math.sqrt(grad2) 
 
             # set the CG tolerance (use Eisenstat–Walker termination criterion)
             if iter == 1:
                 gradnorm_ini = gradnorm
-            tolcg = min(0.5, math.sqrt(gradnorm/(gradnorm_ini+1e-15)))
+            
+            gradnorm_rel = gradnorm / gradnorm_ini
+            tolcg = min(0.5, (gradnorm_rel))
 
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
@@ -660,6 +670,7 @@ class dual_data_run():
                     no_backtrack += 1
                     alpha *= 0.5
                     m.assign(m_prev)  # reset a
+                # alpha = 0.5
             
             if plot_eigval:
                 lmbda, evec = self.eigenvalue_request(m)
@@ -674,7 +685,7 @@ class dual_data_run():
                 plot_step(u1.compute_vertex_values(), u2.compute_vertex_values(), 
                           self.ud1.compute_vertex_values(), self.ud2.compute_vertex_values(), 
                           m.compute_vertex_values(), self.mtrue.compute_vertex_values(), self.gamma,0.5,0.5)
-                print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+                print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||      ||grad_rel||     alpha  tolcg")
             
             ## Optimization of beta1 and beta2
             # diff1 = u1.vector() - self.ud1.vector()
@@ -712,11 +723,11 @@ class dual_data_run():
                 with open(csv_path, 'a') as f:
                     writer = csv.writer(f)
                     writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
-            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:3d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
+            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:3d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
 
-            if alpha < 1e-2:
+            if alpha < 1e-3:
                 alpha_iter += 1
-            if alpha_iter > 5:
+            if alpha_iter > 10:
                 print('Alpha too small: ')
                 break
 
@@ -745,7 +756,7 @@ class dual_data_run():
                     'u_oce2': self.u_oce2,
                     }
 
-        if self.mtrue is not None:
+        if hasattr(self, 'mtrue'):
             self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
         
         return m, u1, u2
