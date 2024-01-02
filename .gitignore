@@ -1,1 +1,3 @@
-lake_data/*
+**/log/
+**/lake_data/*
+*.xls
