@@ -710,7 +710,7 @@ class dual_data_run():
             # beta1, beta2 = res.x
             # print("beta1, beta2: ", res.x)
             # print(sum(res.x))
-            self.misfit_reg_setup(beta1=0.5, beta2=0.5)
+            # self.misfit_reg_setup(beta1=0.5, beta2=0.5)
 
 
             # calculate sqrt(-G * D)
