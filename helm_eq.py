@@ -188,6 +188,7 @@ class single_data_run():
         while iter <  maxiter and not converged:
 
             p, adjoint_A, _ = self.adj_solve(m, u)
+            self.p = p
 
             # assemble matrix C
             Wum_equ, C_equ, Wmm_equ, M_equ = self.wf_matrices_setup(m,u,p)
@@ -206,17 +207,21 @@ class single_data_run():
             C.init_vector(CT_p,1)
             C.transpmult(p.vector(), CT_p)
             # print(np.linalg.norm(CT_p.get_local()))
+            self.CT_P = CT_p
             MG = CT_p + self.R * m.vector()
             dl.solve(self.M, g, MG)
+            self.g = g
+            self.MG = MG
 
             # calculate the norm of the gradient
             grad2 = g.inner(MG)
             gradnorm = math.sqrt(grad2)
 
+            # raise Exception('Stop')
             # set the CG tolerance (use Eisenstat–Walker termination criterion)
             if iter == 1:
                 gradnorm_ini = gradnorm
-            tolcg = min(0.5, math.sqrt(gradnorm/(gradnorm_ini+1e-15)))
+            tolcg = min(0.5, (gradnorm/(gradnorm_ini+1e-15)))
 
             # define the Hessian apply operator (with preconditioner)
             if self.bc_type == 'DBC':

@@ -71,7 +71,7 @@ class HessianOperator():
         self.C.transpmult(self.dp, self.CT_dp)
         y.axpy(1, self.CT_dp)
         
-    # define (Newton) Hessian apply H * v
+    # define (Newton) Hessian apply H * v = y
     def mult_Newton(self, v, y):
         # incremental forward
         rhs = -(self.C * v)
@@ -92,6 +92,36 @@ class HessianOperator():
         y.axpy(1., self.CT_dp)
         self.Wum.transpmult(self.du, self.Wum_du)
         y.axpy(1., self.Wum_du)
+
+    def eval(self, v, y):
+        # incremental forward
+        rhs = -(self.C * v)
+        self.bc_adj.apply(rhs)
+        dl.solve (self.A, self.du, rhs)
+        
+        # incremental adjoint
+        rhs = -(self.W * self.du) -  self.Wum * v
+        self.bc_adj.apply(rhs)
+        dl.solve (self.adj_A, self.dp, rhs)
+        
+        # Reg/Prior term
+        self.R.mult(v,y) # regularization
+        y.axpy(1., self.Wmm*v) # e^m \tild{m} \hat{m} \nabla u * \nabla p
+        
+        # Misfit term
+        self.C.transpmult(self.dp, self.CT_dp)
+        y.axpy(1., self.CT_dp)
+        self.Wum.transpmult(self.du, self.Wum_du)
+        y.axpy(1., self.Wum_du)
+
+    def inner(self, x, y):
+        '''
+        reutnr x^T * H(m) * y
+        '''
+        Hy = dl.Vector()
+        self.A.init_vector(Hy,0)
+        self.eval(y, Hy)
+        return x.inner(Hy)
 
 class HessianOperatorNBC():
     cgiter = 0
