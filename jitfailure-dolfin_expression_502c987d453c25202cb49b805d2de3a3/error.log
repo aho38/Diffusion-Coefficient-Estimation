@@ -1,0 +1,4 @@
+/var/folders/qm/c09rsqbj26d_wgfwm0yhw8r00000gn/T/tmp3l6wbzsx/dolfin_expression_502c987d453c25202cb49b805d2de3a3.cpp:61:28: error: expected unqualified-id
+          values[0] = std::-exp(-pow(x[0] - 0.2, 2) / 0.02) * 5;
+                           ^
+1 error generated.

@@ -19,7 +19,8 @@ class single_data_loop_run():
                  a,b,
                  bc_type,
                  omega,
-                 oce_val,):
+                 oce_val,
+                 file_name = 'single_data'):
         self.gamma_list = gamma_list
         self.nx = nx
         self.a, self.b = a, b
@@ -28,7 +29,7 @@ class single_data_loop_run():
         self.oce_val = oce_val
         now = datetime.now()
         dt_string = now.strftime("%Y%m%d-%H%M%S")
-        self.save_path = increment_path(f'./log/single_data_{bc_type}_{dt_string}', mkdir=True)
+        self.save_path = increment_path(f'./log/{file_name}_{bc_type}_{dt_string}', mkdir=True)
         if os.path.exists(self.save_path / 'results.csv'):
             pass
         else:

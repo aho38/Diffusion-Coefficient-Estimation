@@ -53,47 +53,73 @@ class HessianOperator():
             
     # define (Gauss-Newton) Hessian apply H * v
     def mult_GaussNewton(self, v, y):
+        # apply 0 bc to mhat or v.
+        # self.bc_adj.apply(v)
         
         # incremental forward
         rhs = -(self.C * v)
         self.bc_adj.apply(rhs)
-        dl.solve (self.A, self.du, rhs)
+        A = self.A.copy()
+        self.bc_adj.apply(A)
+        dl.solve (A, self.du, rhs)
         
         # incremental adjoint
         rhs = - (self.W * self.du)
         self.bc_adj.apply(rhs)
-        dl.solve (self.adj_A, self.dp, rhs)
+        adj_A = self.adj_A.copy()
+        self.bc_adj.apply(adj_A)
+        dl.solve (adj_A, self.dp, rhs)
         
         # Reg/Prior term
-        self.R.mult(v,y)
+        R = self.R.copy()
+        self.bc_adj.apply(R)
+        R.mult(v,y)
         
         # Misfit term
-        self.C.transpmult(self.dp, self.CT_dp)
+        C = self.C.copy()
+        self.bc_adj.apply(C)
+        C.transpmult(self.dp, self.CT_dp)
         y.axpy(1, self.CT_dp)
         
     # define (Newton) Hessian apply H * v = y
     def mult_Newton(self, v, y):
+        # apply 0 bc to mhat or v.
+        # self.bc_adj.apply(v)
+
         # incremental forward
         rhs = -(self.C * v)
         self.bc_adj.apply(rhs)
-        dl.solve (self.A, self.du, rhs)
+        A = self.A.copy()
+        self.bc_adj.apply(A)
+        dl.solve (A, self.du, rhs)
         
         # incremental adjoint
         rhs = -(self.W * self.du) -  self.Wum * v
         self.bc_adj.apply(rhs)
-        dl.solve (self.adj_A, self.dp, rhs)
+        adj_A = self.adj_A.copy()
+        self.bc_adj.apply(adj_A)
+        dl.solve (adj_A, self.dp, rhs)
+        
         
         # Reg/Prior term
-        self.R.mult(v,y)
-        y.axpy(1., self.Wmm*v)
+        R = self.R.copy()
+        self.bc_adj.apply(R)
+        R.mult(v,y)
+        Wmm = self.Wmm.copy()
+        self.bc_adj.apply(Wmm)
+        y.axpy(1., Wmm*v)
         
         # Misfit term
-        self.C.transpmult(self.dp, self.CT_dp)
+        C = self.C.copy()
+        self.bc_adj.apply(C)
+        C.transpmult(self.dp, self.CT_dp)
         y.axpy(1., self.CT_dp)
-        self.Wum.transpmult(self.du, self.Wum_du)
+        Wum = self.Wum.copy()
+        self.bc_adj.apply(Wum)
+        Wum.transpmult(self.du, self.Wum_du)
         y.axpy(1., self.Wum_du)
 
-    def eval(self, v, y):
+    def eval(self, v, y): # solve Av = y
         # incremental forward
         rhs = -(self.C * v)
         self.bc_adj.apply(rhs)
@@ -113,6 +139,15 @@ class HessianOperator():
         y.axpy(1., self.CT_dp)
         self.Wum.transpmult(self.du, self.Wum_du)
         y.axpy(1., self.Wum_du)
+
+    def array(self):
+        H_array = self.R.array() + self.Wmm.array()
+        matrix_of_du = -np.linalg.inv(self.A.array()) @ self.C.array()
+        matrix_of_dp = np.linalg.inv(self.adj_A.array()) @ (-self.W.array()@ matrix_of_du - self.Wum.array())
+        H_array += self.C.array().T @ matrix_of_dp + self.Wum.array().T @ matrix_of_du
+        return H_array
+
+
 
     def inner(self, x, y):
         '''
@@ -322,3 +357,35 @@ class HessianOperator_comb():
         y.axpy(1., self.Wum_du1)
         self.Wum2.transpmult(self.du2, self.Wum_du2)
         y.axpy(1., self.Wum_du2) 
+
+    def inner(self, x, y, Hess_type='exact', m=None):
+        '''
+        return x^T * H(m) * y
+        '''
+        Hy = dl.Vector()
+        # self.M.init_vector(Hy,0)
+        if Hess_type == 'exact':
+            self.mult_Newton(y, Hy)
+        elif Hess_type == 'approx':
+            self.mult_GaussNewton(y, Hy)
+        elif Hess_type == 'eval':
+            Hy= self.eval(m, y)
+            return x.inner(Hy)
+        return x.inner(Hy)
+    
+    def hess_sym_check(self,Vm):
+        from utils.random import generate_random_vector
+        '''
+        Creat x and y vector and compute y^T H x and x^T H y. See if they are equal
+        '''
+        xx = dl.Function(Vm).vector()
+        yy = dl.Function(Vm).vector()
+        xx = generate_random_vector(xx,0.,1,1)
+        yy = generate_random_vector(yy,0.,1,2)
+
+        xtHy = self.inner(xx, yy)
+        ytHx = self.inner(yy, xx)
+
+        symm_diff = abs(xtHy-ytHx)
+
+        return symm_diff
