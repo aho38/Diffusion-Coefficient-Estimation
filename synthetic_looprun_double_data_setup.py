@@ -17,7 +17,7 @@ def gaussian(x, mean, std):
 def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_path,opt_csv_name):
     ## ======== initialize runs and setup ========
     run = dual_data_run(nx,a,b,gamma, gamma, omega, omega, oce_val, oce_val, normalized_mean1=0.0,normalized_mean2=0.0,save_path=save_path)
-    run.misfit_reg_setup(beta1, beta2)
+    run.misfit_reg_setup(beta1, beta2, gamma=gamma)# This gamma will override the gamma in the class
 
     ## ======== set up the state and adjoint str ========
     a1_state_str = 'ufl.inner(ufl.exp(m) * ufl.grad(self.u_trial), ufl.grad(self.u_test)) * ufl.dx + self.f * self.omega_val1 * self.u_trial * self.u_test * ufl.dx'
@@ -102,28 +102,27 @@ def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_pa
     run.data_setup(y1, y2 ,normalize=False)
     from utils.general import apply_noise
     ud1, ud2, A1, b1, A2, b2 = run.fwd_solve(m_true)
-    # np.random.seed(0)
+    np.random.seed(0)
     apply_noise(noise_level, ud1, A1)
-    # np.random.seed(1)
+    np.random.seed(1)
     apply_noise(noise_level, ud2, A2)
     run.data_setup(ud1.compute_vertex_values(), ud2.compute_vertex_values(), normalize=False, noise_level=noise_level)
 
     ## ======== Initial Guess ========
     m = dl.interpolate(dl.Expression("std::log(2)", degree=1),run.Vm)
-    # m.assign(m_true)
     from utils.general import DboundaryL, DboundaryR
     bc_m = [dl.DirichletBC(run.Vm, m_true, DboundaryL), dl.DirichletBC(run.Vm, m_true, DboundaryR)]
     bc_m[0].apply(m.vector())
     bc_m[1].apply(m.vector())
-    u1,u2,_,_,_,_ = run.fwd_solve(m)
+    _,_,_,_,_,_ = run.fwd_solve(m)
 
     ## ======== optimization loop ========
-    tol = 1e-9
+    tol = 1e-11
     c = 1e-4
     maxiter=50
     m, u1, u2 = run.opt_loop(m, tol, c, maxiter, save_opt_log=True, plot_opt_step=False, plot_eigval=False, opt_csv_name=opt_csv_name)
 
-    return x, m.compute_vertex_values(), mtrue_array, u1.compute_vertex_values(), u2.compute_vertex_values(), run.ud1.compute_vertex_values(), run.ud2.compute_vertex_values(), g1_array, g2_array, forcing_array, run.save_dict
+    return run.save_dict
 
 class single_data_loop_run():
     def __init__(self,
@@ -543,7 +542,7 @@ def main():
     omega = 1.0
     oce_val = 0.0
     noise_level = 0.00
-    gamma = 1e-4 if noise_level > 0.0 else 1e-15
+    gamma = 1e-12
 
     beta1 = 1.0
     beta2 = 0.0
@@ -569,7 +568,7 @@ def main():
             ## optimize loop
             idx_str = f'0{i}' if i < 10 else f'{i}' 
             opt_csv_name_str = f'opt_log{idx_str}.csv'
-            x, m_array, mtrue_array, u1_array, u2_array, ud1_array, ud2_array, g1_array, g2_array, forcing_array, save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str)
+            save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str)
             
             ## save results
             with open(save_path / f'results.csv', 'a') as f:
@@ -578,7 +577,7 @@ def main():
                     writer_object.writeheader()
                 writer_object.writerow(save_dict)
         except:
-            failed_iter[i] = nx
+            failed_iter.append(nx)
             pass
     print(failed_iter)
 

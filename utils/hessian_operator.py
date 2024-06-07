@@ -230,26 +230,20 @@ class HessianOperatorNBC():
         
         # incremental forward
         C = self.C.copy()
-        self.bc_adj.apply(C)
 
         rhs = -(C * v)
-        self.bc_adj.apply(rhs)
-        self.bc_adj.apply(self.A)
         dl.solve (self.A, self.du, rhs)
         
         # incremental adjoint
         W = self.W.copy()
-        self.bc_adj.apply(W)
 
         rhs = - (W * self.du)
-        self.bc_adj.apply(rhs)
-        self.bc_adj.apply(self.adj_A)
         dl.solve (self.adj_A, self.dp, rhs)
         
         # Reg/Prior term
-        self.R = self.apply_symm_bc_2_matrix(self.R)
-        self.R.mult(v,y)
-        # y.axpy(1.,self.Wmm*v)
+        RpWmm = (self.R + self.Wmm)
+        RpWmm = self.apply_symm_bc_2_matrix(RpWmm)
+        RpWmm.mult(v,y)
         
         # Misfit term
         C.transpmult(self.dp, self.CT_dp)
@@ -403,7 +397,9 @@ class HessianOperator_comb():
             self.mult_GaussNewton(v,y)
         else:
             self.mult_Newton(v,y)
-        
+    
+
+    
     # define (Newton) Hessian apply H * v
     def mult_GaussNewton(self, v, y):
         

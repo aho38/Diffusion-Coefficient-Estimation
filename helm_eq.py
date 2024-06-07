@@ -221,7 +221,7 @@ class single_data_run():
                     writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
 
         # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
-        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg   min(eig)    symm_diff")
+        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg   GaussNewt    symm_diff")
         gradnorm_list = []
         self.eigval_list = []
         # try:
@@ -271,8 +271,8 @@ class single_data_run():
             # define the Hessian apply operator (with preconditioner)
             if self.bc_type == 'DBC':
                 from utils.hessian_operator import HessianOperator
-                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=(iter<6) )
-                # Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
+                # Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=(iter<6) )
+                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
                 self.Hess = Hess_Apply
             if self.bc_type == 'NBC':
                 from utils.hessian_operator import HessianOperatorNBC as HessianOperator
@@ -280,6 +280,7 @@ class single_data_run():
                 Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
                 self.Hess = Hess_Apply
             P = self.R + self.gamma * self.M
+            self.bc_adj.apply(P)
             # get indentity matrix for preconditioner
             form = dl.inner(self.u_test, self.u_trial)*dl.dx
             I = dl.assemble(form)
@@ -287,8 +288,8 @@ class single_data_run():
             I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
 
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
-            # Psolver.set_operator(P)
-            Psolver.set_operator(I)
+            Psolver.set_operator(P)
+            # Psolver.set_operator(I)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -347,18 +348,16 @@ class single_data_run():
             ## compute smallest Eigenvalue of Hessian
             sp = " "
             symm_diff = self.Hess.hess_sym_check(self.Vm)
-            if self.nx < 150 and hasattr(self.Hess, 'array'):
-                self.eig_val, eig_func = np.linalg.eig(self.Hess.array())
-                print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
-            else:
-                self.eig_val = np.nan
-                print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
+            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {Hess_Apply.gauss_newton_approx} {sp:1s} {symm_diff:1.2e}")
+            # if self.nx < 150 and hasattr(self.Hess, 'array'):
+            #     self.eig_val, eig_func = np.linalg.eig(self.Hess.array())
+            #     print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
+            # else:
+            #     self.eig_val = np.nan
+            #     print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
 
 
             gradnorm_list += [gradnorm]
-            # print( "%2d %2s %2d %3s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %1.2e %1s %5.3e" % \
-                # (iter, sp, Hess_Apply.cgiter, sp, cost_old, sp, misfit_old, sp, reg_old, sp, \
-                # graddir, sp, gradnorm, sp, alpha, sp, tolcg) )
             
             ## save opt log 
             if save_opt_log:
@@ -366,9 +365,9 @@ class single_data_run():
                     writer = csv.writer(file)
                     writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
 
-            if alpha < 1e-2:
+            if alpha < 1e-3:
                 alpha_iter += 1
-            if alpha_iter > 20:
+            if alpha_iter > 5:
                 print('Alpha too small: ')
                 break
 
@@ -656,7 +655,6 @@ class dual_data_run():
                     writer = csv.writer(f)
                     writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
 
-        # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||      ||grad_rel||     |yTHx - xTHy|     alpha  tolcg")
         print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      min|yTHx - xTHy|")
         gradnorm_list = []
         # try:
@@ -667,9 +665,6 @@ class dual_data_run():
             Wum_equ1, C_equ1, Wmm_equ1, Wum_equ2, C_equ2, Wmm_equ2, M_equ = self.wf_matrices_setup(m,u1, u2, p1, p2)
             C1 =  dl.assemble(C_equ1)
             C2 =  dl.assemble(C_equ2)
-
-            # print(np.linalg.norm(C1.array()))
-            # print(np.linalg.norm(C2.array()))
 
             # assemble matrix M
             if iter == 1:
@@ -682,12 +677,6 @@ class dual_data_run():
             Wum2 = dl.assemble (Wum_equ2)
             Wmm2 = dl.assemble (Wmm_equ2)
 
-            # print(np.linalg.norm(Wum1.array()))
-            # print(np.linalg.norm(Wmm1.array()))
-
-            # print(np.linalg.norm(Wum2.array()))
-            # print(np.linalg.norm(Wmm2.array()))
-
             # evaluate the  gradient
             CT_p = dl.Vector()
             CT_p1 = dl.Vector()
@@ -697,8 +686,6 @@ class dual_data_run():
 
             C1.transpmult(p1.vector(), CT_p1)
             C2.transpmult(p2.vector(), CT_p2)
-            # print(np.linalg.norm(CT_p1.get_local()))
-            # print(np.linalg.norm(CT_p2.get_local()))
             CT_p.axpy(1., CT_p1)
             CT_p.axpy(1., CT_p2)
 
@@ -731,27 +718,25 @@ class dual_data_run():
                 lmbda, _ = self.eigenvalue_request(m, p=20)
                 plt.semilogy(lmbda[:10], 'o-', label=f'iter {iter}')
                 plt.legend()
-            # plt.show()
 
-        
-            # P = self.R + self.gamma * M
             P = self.R + self.gamma * self.M
+            self.bc_adj.apply(P)
             # get indentity matrix for preconditioner
             I = P.copy()
             I.zero()
             I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
-            # Psolver.set_operator(P)
-            Psolver.set_operator(I)
+            Psolver.set_operator(P)
+            # Psolver.set_operator(I)
 
-            if iter == 1: 
-                k = self.nx
-                p = 20
+            # if iter == 1: 
+            #     k = self.nx
+            #     p = 20
 
-                import hippylib as hp
-                Omega = hp.MultiVector(m.vector(), k + p)
-                hp.parRandom.normal(1., Omega)
-                self.lmbda, _ = hp.doublePassG(Hess_Apply, P, Psolver, Omega, k)
+            #     import hippylib as hp
+            #     Omega = hp.MultiVector(m.vector(), k + p)
+            #     hp.parRandom.normal(1., Omega)
+            #     self.lmbda, _ = hp.doublePassG(Hess_Apply, P, Psolver, Omega, k)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -762,8 +747,6 @@ class dual_data_run():
             
             solver.solve(m_delta, -MG)
             # print(m_delta.get_local()[0:2],m_delta.get_local()[-2:])
-            # print('mg bounds',MG.get_local()[0],MG.get_local()[-1])
-            # print(m_delta[:2], m_delta[-2:])
             total_cg_iter += Hess_Apply.cgiter
 
             # linesearch
@@ -792,14 +775,6 @@ class dual_data_run():
                     no_backtrack += 1
                     alpha *= 0.5
                     m.assign(m_prev)  # reset a
-                # alpha = 0.5
-            
-            # if plot_eigval:
-            #     lmbda, evec = self.eigenvalue_request(m)
-            #     idx = 10
-            #     # plt.semilogy(lmbda[:idx], '*')
-            #     plt.plot(evec[0])
-            #     plt.show()
             
             ## Plot opt step
             if plot_opt_step:
@@ -821,7 +796,7 @@ class dual_data_run():
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
                     writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
-            # print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:3d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {gradnorm_rel:8.5e}{sp:1s} {sym_val: 1.2e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
+
             
             print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
 
