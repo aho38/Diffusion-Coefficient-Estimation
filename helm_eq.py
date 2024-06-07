@@ -108,6 +108,8 @@ class single_data_run():
         j0 = dl.Constant(f'{u0L}') # left boundary
         j1 = dl.Constant(f'{u0R}') # right boundary
         self.ds, self.j0, self.j1 = ds, j0, j1
+
+        self.bc_adj = dl.DirichletBC(self.Vu, dl.Constant(0.), 'on_boundary')
     
     def data_setup(self, PATH = None, ud_array=None, ud = None, data_index=2, normalize=False):
         '''
@@ -219,7 +221,7 @@ class single_data_run():
                     writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
 
         # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
-        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      min(eigval)")
+        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg   min(eig)    symm_diff")
         gradnorm_list = []
         self.eigval_list = []
         # try:
@@ -248,7 +250,7 @@ class single_data_run():
             self.CT_P = CT_p
             MG = CT_p + self.R * m.vector()
             M = self.M.copy()
-            self.bc_adj.apply(MG)
+            self.bc_adj.apply(MG) # this is where I get gradient of m to be zero on the boundary
             self.bc_adj.apply(M)
             dl.solve(M, g, MG)
             self.g = g
@@ -269,12 +271,13 @@ class single_data_run():
             # define the Hessian apply operator (with preconditioner)
             if self.bc_type == 'DBC':
                 from utils.hessian_operator import HessianOperator
-                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
+                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=(iter<6) )
                 # Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
                 self.Hess = Hess_Apply
             if self.bc_type == 'NBC':
                 from utils.hessian_operator import HessianOperatorNBC as HessianOperator
-                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, gauss_newton_approx=(iter<6) )
+                # Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=(iter<6) )
+                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
                 self.Hess = Hess_Apply
             P = self.R + self.gamma * self.M
             # get indentity matrix for preconditioner
@@ -343,11 +346,13 @@ class single_data_run():
 
             ## compute smallest Eigenvalue of Hessian
             sp = " "
-            if self.nx < 150:
+            symm_diff = self.Hess.hess_sym_check(self.Vm)
+            if self.nx < 150 and hasattr(self.Hess, 'array'):
                 self.eig_val, eig_func = np.linalg.eig(self.Hess.array())
-                print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.min(self.eig_val):5.3e}")
+                print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
             else:
-                print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
+                self.eig_val = np.nan
+                print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
 
 
             gradnorm_list += [gradnorm]
@@ -614,6 +619,7 @@ class dual_data_run():
                 opt_csv_name = None,
                 plot_opt_step = False,
                 plot_eigval = False,
+
                 ):
         # initialize iter counters
         iter = 1
@@ -650,7 +656,8 @@ class dual_data_run():
                     writer = csv.writer(f)
                     writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
 
-        print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||      ||grad_rel||     |yTHx - xTHy|     alpha  tolcg")
+        # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||      ||grad_rel||     |yTHx - xTHy|     alpha  tolcg")
+        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      min|yTHx - xTHy|")
         gradnorm_list = []
         # try:
         while iter <  maxiter and not converged:
@@ -696,11 +703,11 @@ class dual_data_run():
             CT_p.axpy(1., CT_p2)
 
             MG = CT_p + self.R * m.vector()
-            # if iter == 1:
-            #     M = self.M.copy()
-            # self.bc_adj.apply(MG)
-            # self.bc_adj.apply(M)
-            dl.solve(self.M, g, MG)
+            if iter == 1:
+                M = self.M.copy()
+            self.bc_adj.apply(MG)
+            self.bc_adj.apply(M)
+            dl.solve(M, g, MG)
 
             # calculate the norm of the gradient
             grad2 = g.inner(MG)
@@ -715,19 +722,27 @@ class dual_data_run():
 
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
-            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, 
-                                         Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter<6))
+            # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter < 6))
+            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=False)
             self.Hess = Hess_Apply
 
             # Plot eigenvalues
-            lmbda, _ = self.eigenvalue_request(m, p=20)
-            plt.semilogy(lmbda[:10], 'o-')
+            if iter % 10 == 0 and plot_eigval:
+                lmbda, _ = self.eigenvalue_request(m, p=20)
+                plt.semilogy(lmbda[:10], 'o-', label=f'iter {iter}')
+                plt.legend()
             # plt.show()
+
         
             # P = self.R + self.gamma * M
             P = self.R + self.gamma * self.M
+            # get indentity matrix for preconditioner
+            I = P.copy()
+            I.zero()
+            I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
-            Psolver.set_operator(P)
+            # Psolver.set_operator(P)
+            Psolver.set_operator(I)
 
             if iter == 1: 
                 k = self.nx
@@ -746,6 +761,9 @@ class dual_data_run():
             solver.parameters["print_level"] = -1
             
             solver.solve(m_delta, -MG)
+            # print(m_delta.get_local()[0:2],m_delta.get_local()[-2:])
+            # print('mg bounds',MG.get_local()[0],MG.get_local()[-1])
+            # print(m_delta[:2], m_delta[-2:])
             total_cg_iter += Hess_Apply.cgiter
 
             # linesearch
@@ -776,12 +794,12 @@ class dual_data_run():
                     m.assign(m_prev)  # reset a
                 # alpha = 0.5
             
-            if plot_eigval:
-                lmbda, evec = self.eigenvalue_request(m)
-                idx = 10
-                # plt.semilogy(lmbda[:idx], '*')
-                plt.plot(evec[0])
-                plt.show()
+            # if plot_eigval:
+            #     lmbda, evec = self.eigenvalue_request(m)
+            #     idx = 10
+            #     # plt.semilogy(lmbda[:idx], '*')
+            #     plt.plot(evec[0])
+            #     plt.show()
             
             ## Plot opt step
             if plot_opt_step:
@@ -790,31 +808,6 @@ class dual_data_run():
                           self.ud1.compute_vertex_values(), self.ud2.compute_vertex_values(), 
                           m.compute_vertex_values(), self.mtrue.compute_vertex_values(), self.gamma,0.5,0.5)
                 print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||      ||grad_rel||     |yTHx - xTHy|     alpha  tolcg")
-            
-            ## Optimization of beta1 and beta2
-            # diff1 = u1.vector() - self.ud1.vector()
-            # diff2 = u2.vector() - self.ud2.vector()
-            # diff1_scalar = diff1.inner(self.W * diff1)
-            # diff2_scalar = diff2.inner(self.W * diff2)
-
-            # reg_for_beta_opt = dl.assemble(ufl.inner(ufl.grad(m), ufl.grad(m)) * ufl.dx)
-
-            # def betas_func(x):
-            #     gamma = np.exp(x[0]*np.log(self.gamma1) + x[1]*np.log(self.gamma2))
-            #     misfit_val = x[0] * diff1_scalar + x[1] * diff2_scalar
-            #     reg_val = gamma * reg_for_beta_opt
-            #     return 0.5 * misfit_val + 0.5 * reg_val
-            
-            # def constraint(x):
-            #     return x[0] + x[1] - 1
-            # bounds = [(0.1, 0.9), (0.1, 0.9)]
-            # constraints = ({'type': 'eq', 'fun': constraint})
-            # x0 = np.array([self.beta1.values()[0], self.beta2.values()[0]])
-            # res = minimize(betas_func, x0, tol=1e-12, constraints=constraints, bounds=bounds)
-            # beta1, beta2 = res.x
-            # print("beta1, beta2: ", res.x)
-            # print(sum(res.x))
-            # self.misfit_reg_setup(beta1=0.5, beta2=0.5)
 
 
             # calculate sqrt(-G * D)
@@ -828,7 +821,9 @@ class dual_data_run():
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
                     writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
-            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:3d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {gradnorm_rel:8.5e}{sp:1s} {sym_val: 1.2e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
+            # print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:3d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {gradnorm_rel:8.5e}{sp:1s} {sym_val: 1.2e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
+            
+            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
 
             if alpha < 1e-3:
                 alpha_iter += 1

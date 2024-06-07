@@ -102,19 +102,23 @@ def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_pa
     run.data_setup(y1, y2 ,normalize=False)
     from utils.general import apply_noise
     ud1, ud2, A1, b1, A2, b2 = run.fwd_solve(m_true)
-    np.random.seed(0)
+    # np.random.seed(0)
     apply_noise(noise_level, ud1, A1)
-    np.random.seed(1)
+    # np.random.seed(1)
     apply_noise(noise_level, ud2, A2)
     run.data_setup(ud1.compute_vertex_values(), ud2.compute_vertex_values(), normalize=False, noise_level=noise_level)
 
     ## ======== Initial Guess ========
     m = dl.interpolate(dl.Expression("std::log(2)", degree=1),run.Vm)
     # m.assign(m_true)
+    from utils.general import DboundaryL, DboundaryR
+    bc_m = [dl.DirichletBC(run.Vm, m_true, DboundaryL), dl.DirichletBC(run.Vm, m_true, DboundaryR)]
+    bc_m[0].apply(m.vector())
+    bc_m[1].apply(m.vector())
     u1,u2,_,_,_,_ = run.fwd_solve(m)
 
     ## ======== optimization loop ========
-    tol = 1e-11
+    tol = 1e-9
     c = 1e-4
     maxiter=50
     m, u1, u2 = run.opt_loop(m, tol, c, maxiter, save_opt_log=True, plot_opt_step=False, plot_eigval=False, opt_csv_name=opt_csv_name)
@@ -533,19 +537,21 @@ class double_data_loop_run():
 def main():   
     # nx = 32
     nx_list = [4,8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,160,192,224,256,288,320,352]
+    # nx_list = [4,8,16,32,64,128,256,512]
     a = 0.0
     b = 1.0
     omega = 1.0
     oce_val = 0.0
-    gamma = 1e-4
-    noise_level = 0.03
+    noise_level = 0.00
+    gamma = 1e-4 if noise_level > 0.0 else 1e-15
 
-    beta1 = 0.5
-    beta2 = 0.5
+    beta1 = 1.0
+    beta2 = 0.0
 
     ## set up save path
     now = datetime.now()
-    dir_name = 'nx_loop_double_data_noise'
+    # dir_name = 'nx_loop_double_data'
+    dir_name = 'nx_loop_DBC_single_data'
     dt_string = now.strftime("%Y%m%d-%H%M%S")
     path_ = f'./log/{dir_name}_{dt_string}'
     save_path = increment_path(path_, mkdir=True)
@@ -555,7 +561,7 @@ def main():
         with open(save_path / f'results.csv', 'w') as f:
             pass
     ## ===================
-    failed_iter = {}
+    failed_iter = []
 
     for i, nx in enumerate(nx_list):
         print(f'iter: {i}, nx: {nx}')
