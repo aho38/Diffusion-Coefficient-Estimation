@@ -15,6 +15,7 @@ import math
 import csv
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
+import time
 from utils.general import increment_path, DboundaryL, DboundaryR, Dboundary, NboundaryL, NboundaryR, data_normalization
 
 dl.set_log_active(False)
@@ -288,8 +289,8 @@ class single_data_run():
             I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
 
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
-            Psolver.set_operator(P)
-            # Psolver.set_operator(I)
+            # Psolver.set_operator(P)
+            Psolver.set_operator(I)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -636,6 +637,27 @@ class dual_data_run():
         self.R.init_vector(m_delta,0)
         self.R.init_vector(g,0)
 
+        self.save_dict = {'nx': np.nan,
+                    'gamma_val': np.nan,
+                    'misfit': np.nan,
+                    'reg': np.nan,
+                    'u_sol1': np.nan,
+                    'u_d1': np.nan,
+                    'u_sol2': np.nan,
+                    'u_d2': np.nan,
+                    'm_sol': np.nan,
+                    'forcing': np.nan,
+                    'g1': np.nan,
+                    'g2': np.nan,
+                    'gradnorm': np.nan,
+                    'gradnorm_list': np.nan,
+                    'u_oce1': np.nan,
+                    'u_oce2': np.nan,
+                    'mtrue': np.nan,
+                    'noise_level': np.nan,
+                    'run_time': np.nan
+                    }
+
         ## create log path for optimization
         if save_opt_log:
             ## make sure opt name is set if save_opt_log
@@ -657,6 +679,8 @@ class dual_data_run():
 
         print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      min|yTHx - xTHy|")
         gradnorm_list = []
+        start_time = time.time()
+
         # try:
         while iter <  maxiter and not converged:
             p1, p2, adjoint_A1, _, adjoint_A2, _ = self.adj_solve(m, u1, u2)
@@ -705,7 +729,7 @@ class dual_data_run():
                 gradnorm_ini = gradnorm
             
             gradnorm_rel = gradnorm / gradnorm_ini
-            tolcg = min(0.5, (gradnorm_rel))
+            tolcg = min(0.5, max(gradnorm_rel,1e-9))
 
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
@@ -726,17 +750,9 @@ class dual_data_run():
             I.zero()
             I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
-            Psolver.set_operator(P)
-            # Psolver.set_operator(I)
+            # Psolver.set_operator(P)
+            Psolver.set_operator(I)
 
-            # if iter == 1: 
-            #     k = self.nx
-            #     p = 20
-
-            #     import hippylib as hp
-            #     Omega = hp.MultiVector(m.vector(), k + p)
-            #     hp.parRandom.normal(1., Omega)
-            #     self.lmbda, _ = hp.doublePassG(Hess_Apply, P, Psolver, Omega, k)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -791,7 +807,7 @@ class dual_data_run():
             sp = ""
             gradnorm_list += [gradnorm]
             # print opt log and write opt log
-            sym_val = Hess_Apply.hess_sym_check(self.Vm)
+            sym_val = 0.0 # Hess_Apply.hess_sym_check(self.Vm)
             if save_opt_log:
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
@@ -802,7 +818,7 @@ class dual_data_run():
 
             if alpha < 1e-3:
                 alpha_iter += 1
-            if alpha_iter > 10:
+            if alpha_iter > 20:
                 print('Alpha too small: ')
                 break
 
@@ -816,6 +832,9 @@ class dual_data_run():
         if not converged:
             print( "Newton's method did not converge in ", maxiter, " iterations")
         
+        run_time = time.time() - start_time
+        print("Run time: ", run_time)
+
         self.save_dict = {'nx': self.nx,
                     'gamma_val': self.gamma,
                     'misfit': misfit_old,
@@ -832,13 +851,16 @@ class dual_data_run():
                     'gradnorm_list': gradnorm_list,
                     'u_oce1': self.u_oce1,
                     'u_oce2': self.u_oce2,
+                    'm_true': self.mtrue.compute_vertex_values().tolist(),
+                    'noise_level': self.noise_level,
+                    'run_time': run_time,
                     }
 
-        if hasattr(self, 'mtrue'):
-            self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
+        # if hasattr(self, 'mtrue'):
+        #     self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
 
-        if hasattr(self, 'noise_level'):
-            self.save_dict['noise_level'] = self.noise_level
+        # if hasattr(self, 'noise_level'):
+        #     self.save_dict['noise_level'] = self.noise_level
         
         return m, u1, u2
 

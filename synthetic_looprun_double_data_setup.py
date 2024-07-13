@@ -14,7 +14,7 @@ def gaussian(x, mean, std):
     return np.exp(-np.power(x - mean, 2.) / (2 * np.power(std, 2.)))
 
 
-def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_path,opt_csv_name):
+def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_path,opt_csv_name,seed=0):
     ## ======== initialize runs and setup ========
     run = dual_data_run(nx,a,b,gamma, gamma, omega, omega, oce_val, oce_val, normalized_mean1=0.0,normalized_mean2=0.0,save_path=save_path)
     run.misfit_reg_setup(beta1, beta2, gamma=gamma)# This gamma will override the gamma in the class
@@ -102,14 +102,14 @@ def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_pa
     run.data_setup(y1, y2 ,normalize=False)
     from utils.general import apply_noise
     ud1, ud2, A1, b1, A2, b2 = run.fwd_solve(m_true)
-    np.random.seed(0)
+    np.random.seed(seed)
     apply_noise(noise_level, ud1, A1)
-    np.random.seed(1)
+    np.random.seed(seed)
     apply_noise(noise_level, ud2, A2)
     run.data_setup(ud1.compute_vertex_values(), ud2.compute_vertex_values(), normalize=False, noise_level=noise_level)
 
     ## ======== Initial Guess ========
-    m = dl.interpolate(dl.Expression("std::log(2)", degree=1),run.Vm)
+    m = dl.interpolate(dl.Expression("std::log(1)", degree=1),run.Vm)
     from utils.general import DboundaryL, DboundaryR
     bc_m = [dl.DirichletBC(run.Vm, m_true, DboundaryL), dl.DirichletBC(run.Vm, m_true, DboundaryR)]
     bc_m[0].apply(m.vector())
@@ -118,8 +118,8 @@ def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_pa
 
     ## ======== optimization loop ========
     tol = 1e-11
-    c = 1e-4
-    maxiter=50
+    c = 1e-3
+    maxiter=100
     m, u1, u2 = run.opt_loop(m, tol, c, maxiter, save_opt_log=True, plot_opt_step=False, plot_eigval=False, opt_csv_name=opt_csv_name)
 
     return run.save_dict
@@ -534,52 +534,78 @@ class double_data_loop_run():
             
 
 def main():   
-    # nx = 32
-    nx_list = [4,8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,160,192,224,256,288,320,352]
+
+    failed_iter = []
+    nx = 32
+    # nx_list = [4,8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,160,192,224,256,288,320,352]
+    # nx_list = np.linspace(4,164,41,dtype=int)
     # nx_list = [4,8,16,32,64,128,256,512]
     a = 0.0
     b = 1.0
     omega = 1.0
     oce_val = 0.0
-    noise_level = 0.00
-    gamma = 1e-12
+    noise_level = 0.001
+    # gamma = 1e-15
+    gamma_list = np.logspace(-12, -2, 101)
+    for j in range(10):
+        seed = j
 
-    beta1 = 1.0
-    beta2 = 0.0
+        beta1 = 0.0
+        beta2 = 1.0
 
-    ## set up save path
-    now = datetime.now()
-    # dir_name = 'nx_loop_double_data'
-    dir_name = 'nx_loop_DBC_single_data'
-    dt_string = now.strftime("%Y%m%d-%H%M%S")
-    path_ = f'./log/{dir_name}_{dt_string}'
-    save_path = increment_path(path_, mkdir=True)
-    if os.path.exists(save_path / f'results.csv'):
-        pass
-    else:
-        with open(save_path / f'results.csv', 'w') as f:
+        ## set up save path
+        now = datetime.now()
+        if beta1 == 0.5 and beta2 == 0.5:
+            # dir_name = 'nx_loop_double_data'
+            # dir_name = f'gamma_loop_double_data_noise_0dot5_seed_{seed}'
+            dir_name = f'gamma_loop_double_data_noise_{int(noise_level*100)}_seed_{seed}'
+        elif beta1 == 1.0 and beta2 == 0.0:
+            # dir_name = 'nx_loop_DBC_single_data'
+            dir_name = f'gamma_loop_DBC_single_data_noise_0dot1_seed_{seed}'
+            # dir_name = f'gamma_loop_DBC_single_data_noise_{int(noise_level*100)}_seed_{seed}'
+        elif beta1 == 0.0 and beta2 == 1.0:
+            # dir_name = 'nx_loop_NBC_single_data'
+            dir_name = f'gamma_loop_NBC_single_data_noise_{int(noise_level*100)}_seed_{seed}'
+        else:
+            raise ValueError('beta1 and beta2 must be 0.5 or 1.0 or 0.0')
+        dt_string = now.strftime("%Y%m%d-%H%M%S")
+        path_ = f'./log/{dir_name}_{dt_string}'
+        save_path = increment_path(path_, mkdir=True)
+        if os.path.exists(save_path / f'results.csv'):
             pass
-    ## ===================
-    failed_iter = []
+        else:
+            with open(save_path / f'results.csv', 'w') as f:
+                pass
+        ## ===================
+        
 
-    for i, nx in enumerate(nx_list):
-        print(f'iter: {i}, nx: {nx}')
-        try:
-            ## optimize loop
-            idx_str = f'0{i}' if i < 10 else f'{i}' 
-            opt_csv_name_str = f'opt_log{idx_str}.csv'
-            save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str)
-            
-            ## save results
-            with open(save_path / f'results.csv', 'a') as f:
-                writer_object = DictWriter(f, save_dict.keys())
-                if f.tell() == 0:
-                    writer_object.writeheader()
-                writer_object.writerow(save_dict)
-        except:
-            failed_iter.append(nx)
-            pass
+        # for i, nx in enumerate(nx_list):
+        #     print(f'iter: {i}, nx: {nx}')
+        for i, gamma in enumerate(gamma_list):
+            print(f'iter: {i}, gamma: {gamma}')
+            try:
+                ## optimize loop
+                idx_str = f'0{i}' if i < 10 else f'{i}' 
+                opt_csv_name_str = f'opt_log{idx_str}.csv'
+                save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str, seed=seed)
+                
+                ## save results
+                with open(save_path / f'results.csv', 'a') as f:
+                    writer_object = DictWriter(f, save_dict.keys())
+                    if f.tell() == 0:
+                        writer_object.writeheader()
+                    writer_object.writerow(save_dict)
+            except:
+                save_dict = {'nx': nx, 'gamma_val': gamma,'misfit': np.nan,'reg': np.nan,'u_sol1': np.nan,'u_d1': np.nan,'u_sol2': np.nan,'u_d2': np.nan,'m_sol': np.nan,'forcing': np.nan,'g1': np.nan,'g2': np.nan,'gradnorm': np.nan,'gradnorm_list': np.nan,'u_oce1': np.nan,'u_oce2': np.nan,'mtrue': np.nan,'noise_level': np.nan, 'run_time': np.nan,}
+                with open(save_path / f'results.csv', 'a') as f:
+                    writer_object = DictWriter(f, save_dict.keys())
+                    if f.tell() == 0:
+                        writer_object.writeheader()
+                    writer_object.writerow(save_dict)
+                failed_iter.append((j,i,gamma))
+                pass
     print(failed_iter)
+    os.system('say "your algorithm has finished"')
 
 
 

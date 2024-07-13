@@ -110,7 +110,7 @@ def sensitivity_array(mtrue, utrue, distribution_array, omega_val = 1):
         b_sens.set_local(drdm.array()[:,i]) # set b to be dr/dm_i
         bc.apply(b_sens)
         dl.solve(A, sensitivity.vector(), -b_sens) # negative b.
-        sensitivity_array[:,i] = sensitivity.vector().get_local() # this will save the sensitivity as (m_i, u_j)
+        sensitivity_array[i,:] = sensitivity.vector().get_local() # this will save the sensitivity as (m_i, u_j)
     
     return sensitivity_array, mtrue_el, utrue_el
 
