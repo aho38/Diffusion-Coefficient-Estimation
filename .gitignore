@@ -1,3 +1,5 @@
 **/log/
 **/lake_data/*
 *.xls
+*jitfailure*
+*__pycache__*
