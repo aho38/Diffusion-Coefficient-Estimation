@@ -1,3 +1,4 @@
 **/log/
 **/lake_data/*
 *.xls
+*__pycache__*
