@@ -544,7 +544,7 @@ def main(seed):
     b = 1.0
     omega = 1.0
     oce_val = 0.0
-    noise_level = 0.10
+    noise_level = 0.03
     # gamma = 1e-15
     gamma_list = np.logspace(-12, -2, 101)
     # for j in range(10):
@@ -612,4 +612,4 @@ def main(seed):
 if __name__ == '__main__':
     import concurrent.futures
     with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
-        executor.map(main, range(10))
+        executor.map(main, range(100))
