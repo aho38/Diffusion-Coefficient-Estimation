@@ -3,3 +3,4 @@
 *.xls
 *jitfailure*
 **/__pycache__/ # the "**" followed by slash means match all directories
+__pycache__/
