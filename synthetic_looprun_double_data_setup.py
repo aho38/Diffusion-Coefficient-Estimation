@@ -533,7 +533,7 @@ class double_data_loop_run():
                 writer_object.writerow(run.save_dict)
             
 
-def main(seed):   
+def main(seed,noise_level):   
 
     failed_iter = []
     nx = 64
@@ -544,28 +544,31 @@ def main(seed):
     b = 1.0
     omega = 1.0
     oce_val = 0.0
-    noise_level = 0.03
+    # noise_level = 0.005
     # gamma = 1e-15
     gamma_list = np.logspace(-12, -2, 101)
     # for j in range(10):
     #     seed = j
 
-    beta1 = 1.0
-    beta2 = 0.0
+    beta1 = 0.0
+    beta2 = 1.0
 
     ## set up save path
     now = datetime.now()
+    noise_level_str = str(int(noise_level*100)).zfill(3) if noise_level is not 0.005 else '000_5'
+     #.zfill fill 0 to 3 digits 
+    seed_str = str(seed).zfill(3)
     if beta1 == 0.5 and beta2 == 0.5:
         # dir_name = 'nx_loop_double_data'
         # dir_name = f'gamma_loop_double_data_noise_0dot5_seed_{seed}'
-        dir_name = f'gamma_loop_double_data_nx_{nx}_noise_{int(noise_level*100)}_seed_{seed}'
+        dir_name = f'double_data_nx_64_noise_{noise_level_str}/gamma_loop_double_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     elif beta1 == 1.0 and beta2 == 0.0:
         # dir_name = 'nx_loop_DBC_single_data'
         # dir_name = f'gamma_loop_DBC_single_data_noise_0dot1_seed_{seed}'
-        dir_name = f'gamma_loop_DBC_single_data_nx_{nx}_noise_{int(noise_level*100)}_seed_{seed}'
+        dir_name = f'DBC_nx_64_noise_{noise_level_str}/gamma_loop_DBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     elif beta1 == 0.0 and beta2 == 1.0:
         # dir_name = 'nx_loop_NBC_single_data'
-        dir_name = f'gamma_loop_NBC_single_data_nx_{nx}_noise_{int(noise_level*100)}_seed_{seed}'
+        dir_name = f'NBC_nx_64_noise_{noise_level_str}/gamma_loop_NBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     else:
         raise ValueError('beta1 and beta2 must be 0.5 or 1.0 or 0.0')
     dt_string = now.strftime("%Y%m%d-%H%M%S")
@@ -611,5 +614,11 @@ def main(seed):
 
 if __name__ == '__main__':
     import concurrent.futures
+    seeds = range(100)
+    noises = [0.005, 0.01, 0.03, 0.05]
+    import itertools
+    arguments = list(itertools.product(seeds, noises))
+
     with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
-        executor.map(main, range(100))
+        executor.map(main, *zip(*arguments))
+
