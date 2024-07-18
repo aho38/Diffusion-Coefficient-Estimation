@@ -224,6 +224,7 @@ class single_data_run():
         # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
         print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg   GaussNewt    symm_diff")
         gradnorm_list = []
+        start_time = time.time()
         self.eigval_list = []
         # try:
         while iter <  maxiter and not converged:
@@ -368,7 +369,7 @@ class single_data_run():
 
             if alpha < 1e-3:
                 alpha_iter += 1
-            if alpha_iter > 5:
+            if alpha_iter > 10:
                 print('Alpha too small: ')
                 break
 
@@ -387,6 +388,9 @@ class single_data_run():
             self.p = p
             self.adjoint_A, self.adjoint_b = adjoint_A, adjoint_b
             print( "Newton's method did not converge in ", maxiter, " iterations")
+        
+        run_time = time.time() - start_time
+        print("Run time: ", run_time)
 
         self.save_dict = {'nx': self.nx,
                     'gamma_val': self.gamma,
@@ -404,6 +408,7 @@ class single_data_run():
                     'boundary_type': self.bc_type,
                     'bcL': self.u0L,
                     'bcR': self.u0R,
+                    'run_time': run_time,
                     }
         if hasattr(self,'mtrue'):
             self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
