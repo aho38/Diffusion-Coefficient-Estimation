@@ -550,12 +550,12 @@ def main(seed,noise_level):
     # for j in range(10):
     #     seed = j
 
-    beta1 = 0.0
-    beta2 = 1.0
+    beta1 = 0.5
+    beta2 = 0.5
 
     ## set up save path
     now = datetime.now()
-    noise_level_str = str(int(noise_level*100)).zfill(3) if noise_level is not 0.005 else '000_5'
+    noise_level_str = str(int(noise_level*100)).zfill(3) if noise_level != 0.005 else '000_5'
      #.zfill fill 0 to 3 digits 
     seed_str = str(seed).zfill(3)
     if beta1 == 0.5 and beta2 == 0.5:
@@ -615,7 +615,7 @@ def main(seed,noise_level):
 if __name__ == '__main__':
     import concurrent.futures
     seeds = range(100)
-    noises = [0.005, 0.01, 0.03, 0.05]
+    noises = [0.01,0.03, 0.05]
     import itertools
     arguments = list(itertools.product(seeds, noises))
 
