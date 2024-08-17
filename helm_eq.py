@@ -893,14 +893,15 @@ class dual_data_run():
         misfit = beta1 * diff1.inner(self.W * diff1) + beta2 * diff2.inner(self.W * diff2)
         return [0.5 * reg + 0.5 * misfit, misfit, reg]
 
-    def eigenvalue_request(self, m, p=20):
-        k = self.nx
-        P = self.R + self.gamma * self.M * 1e-3
-        Psolver = dl.PETScKrylovSolver("cg", amg_method())
-        Psolver.set_operator(P)
+    def eigenvalue_request(self, m, p=20, k = None):
+        if k == None:
+            k = self.nx
+        P = self.R + self.gamma * self.M * 1e-3 # Adding tiny mass matrix to ensure invertibility
+        Psolver = dl.PETScKrylovSolver("cg", amg_method()) # krylov method
+        Psolver.set_operator(P) # this is going to be my B and B_inv for double pass G
 
         import hippylib as hp
-        Omega = hp.MultiVector(m.vector(), k + p)
-        hp.parRandom.normal(1., Omega)
-        lmbda, evecs = hp.doublePassG(self.Hess, P, Psolver, Omega, k)
+        Omega = hp.MultiVector(m.vector(), k + p) # creat this reandom (n x k+p) matrix
+        hp.parRandom.normal(1., Omega) # randomize the matrix with Gaussian distribution
+        lmbda, evecs = hp.doublePassG(self.Hess, P, Psolver, Omega, k) # obtain eigenvalues and eigenvectors
         return lmbda, evecs
