@@ -290,8 +290,8 @@ class single_data_run():
             I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
 
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
-            # Psolver.set_operator(P)
-            Psolver.set_operator(I)
+            Psolver.set_operator(P)
+            # Psolver.set_operator(I)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -436,8 +436,9 @@ class single_data_run():
         misfit = diff.inner(self.W * diff)
         return [0.5 * reg + 0.5 * misfit, misfit, reg]
     
-    def eigenvalue_request(self, m, p=20):
-        k = self.nx
+    def eigenvalue_request(self, m, p=20, k =None):
+        if k == None:
+            k = self.nx
         P = self.R + self.gamma * self.M
         Psolver = dl.PETScKrylovSolver("cg", amg_method())
         Psolver.set_operator(P)
@@ -735,7 +736,7 @@ class dual_data_run():
             
             gradnorm_rel = gradnorm / gradnorm_ini
             tolcg = min(0.5, max(gradnorm_rel,1e-9))
-
+ 
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
             # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter < 6))
