@@ -756,8 +756,8 @@ class dual_data_run():
             I.zero()
             I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
-            # Psolver.set_operator(P)
-            Psolver.set_operator(I)
+            Psolver.set_operator(P)
+            # Psolver.set_operator(I)
 
 
             solver = CGSolverSteihaug()
