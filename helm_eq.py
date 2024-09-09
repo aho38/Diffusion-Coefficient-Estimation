@@ -681,7 +681,7 @@ class dual_data_run():
                 import csv
                 with open(csv_path, 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
+                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'rel_gradnorm', 'alpha', 'toldcg', 'm_sol', 'u_sol1', 'u_sol2'])
 
         print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      min|yTHx - xTHy|")
         gradnorm_list = []
@@ -817,7 +817,7 @@ class dual_data_run():
             if save_opt_log:
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
-                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
+                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
 
             
             print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")

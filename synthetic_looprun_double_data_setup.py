@@ -561,14 +561,14 @@ def main(seed,noise_level):
     if beta1 == 0.5 and beta2 == 0.5:
         # dir_name = 'nx_loop_double_data'
         # dir_name = f'gamma_loop_double_data_noise_0dot5_seed_{seed}'
-        dir_name = f'double_data_nx_64_noise_{noise_level_str}/gamma_loop_double_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
+        dir_name = f'double_data_nx_64_noise_{noise_level_str}_preconditioned/gamma_loop_double_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     elif beta1 == 1.0 and beta2 == 0.0:
         # dir_name = 'nx_loop_DBC_single_data'
         # dir_name = f'gamma_loop_DBC_single_data_noise_0dot1_seed_{seed}'
-        dir_name = f'DBC_nx_64_noise_{noise_level_str}/gamma_loop_DBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
+        dir_name = f'DBC_nx_64_noise_{noise_level_str}_preconditioned/gamma_loop_DBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     elif beta1 == 0.0 and beta2 == 1.0:
         # dir_name = 'nx_loop_NBC_single_data'
-        dir_name = f'NBC_nx_64_noise_{noise_level_str}/gamma_loop_NBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
+        dir_name = f'NBC_nx_64_noise_{noise_level_str}_preconditioned/gamma_loop_NBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     else:
         raise ValueError('beta1 and beta2 must be 0.5 or 1.0 or 0.0')
     dt_string = now.strftime("%Y%m%d-%H%M%S")
@@ -614,8 +614,8 @@ def main(seed,noise_level):
 
 if __name__ == '__main__':
     import concurrent.futures
-    seeds = range(100)
-    noises = [0.01,0.03, 0.05]
+    seeds = range(50)
+    noises = [0.03]
     import itertools
     arguments = list(itertools.product(seeds, noises))
 
