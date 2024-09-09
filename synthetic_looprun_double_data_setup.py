@@ -48,7 +48,8 @@ def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_pa
     def normalize_u(u_array):
         mean = np.mean(u_array)
         std = np.std(u_array)
-        return (u_array - mean) / std, mean, std
+        # return (u_array - mean) / std, mean, std
+        return (u_array - mean) / np.max(abs(u_array - mean)), mean, std # make sure its between -1 and 1
 
     y1, y1_mean, y1_std = normalize_u(y1)
     y2, y2_mean, y2_std = normalize_u(y2)
@@ -547,11 +548,12 @@ def main(seed,noise_level):
     # noise_level = 0.005
     # gamma = 1e-15
     gamma_list = np.logspace(-12, -2, 101)
+    # gamma_list = 1e-4
     # for j in range(10):
     #     seed = j
 
-    beta1 = 0.5
-    beta2 = 0.5
+    beta1 = 1.0
+    beta2 = 0.0
 
     ## set up save path
     now = datetime.now()
@@ -586,27 +588,27 @@ def main(seed,noise_level):
     #     print(f'iter: {i}, nx: {nx}')
     for i, gamma in enumerate(gamma_list):
         print(f'iter: {i}, gamma: {gamma}')
-        try:
-            ## optimize loop
-            idx_str = f'0{i}' if i < 10 else f'{i}' 
-            opt_csv_name_str = f'opt_log{idx_str}.csv'
-            save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str, seed=seed)
-            
-            ## save results
-            with open(save_path / f'results.csv', 'a') as f:
-                writer_object = DictWriter(f, save_dict.keys())
-                if f.tell() == 0:
-                    writer_object.writeheader()
-                writer_object.writerow(save_dict)
-        except:
-            save_dict = {'nx': nx, 'gamma_val': gamma,'misfit': np.nan,'reg': np.nan,'u_sol1': np.nan,'u_d1': np.nan,'u_sol2': np.nan,'u_d2': np.nan,'m_sol': np.nan,'forcing': np.nan,'g1': np.nan,'g2': np.nan,'gradnorm': np.nan,'gradnorm_list': np.nan,'u_oce1': np.nan,'u_oce2': np.nan,'mtrue': np.nan,'noise_level': np.nan, 'run_time': np.nan,}
-            with open(save_path / f'results.csv', 'a') as f:
-                writer_object = DictWriter(f, save_dict.keys())
-                if f.tell() == 0:
-                    writer_object.writeheader()
-                writer_object.writerow(save_dict)
-            failed_iter.append((i,gamma))
-            pass
+        # try:
+        ## optimize loop
+        idx_str = f'0{i}' if i < 10 else f'{i}' 
+        opt_csv_name_str = f'opt_log{idx_str}.csv'
+        save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str, seed=seed)
+        
+        ## save results
+        with open(save_path / f'results.csv', 'a') as f:
+            writer_object = DictWriter(f, save_dict.keys())
+            if f.tell() == 0:
+                writer_object.writeheader()
+            writer_object.writerow(save_dict)
+        # except:
+        #     save_dict = {'nx': nx, 'gamma_val': gamma,'misfit': np.nan,'reg': np.nan,'u_sol1': np.nan,'u_d1': np.nan,'u_sol2': np.nan,'u_d2': np.nan,'m_sol': np.nan,'forcing': np.nan,'g1': np.nan,'g2': np.nan,'gradnorm': np.nan,'gradnorm_list': np.nan,'u_oce1': np.nan,'u_oce2': np.nan,'mtrue': np.nan,'noise_level': np.nan, 'run_time': np.nan,}
+        #     with open(save_path / f'results.csv', 'a') as f:
+        #         writer_object = DictWriter(f, save_dict.keys())
+        #         if f.tell() == 0:
+        #             writer_object.writeheader()
+        #         writer_object.writerow(save_dict)
+        #     failed_iter.append((i,gamma))
+        #     pass
     print(failed_iter)
     # os.system('say "your algorithm has finished"')
 

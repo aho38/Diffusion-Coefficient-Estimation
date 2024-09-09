@@ -739,8 +739,8 @@ class dual_data_run():
  
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
-            # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter < 6))
-            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=False)
+            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter < 6))
+            # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=False)
             self.Hess = Hess_Apply
 
             # Plot eigenvalues
