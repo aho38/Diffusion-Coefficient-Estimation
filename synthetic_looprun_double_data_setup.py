@@ -588,27 +588,27 @@ def main(seed,noise_level):
     #     print(f'iter: {i}, nx: {nx}')
     for i, gamma in enumerate(gamma_list):
         print(f'iter: {i}, gamma: {gamma}')
-        # try:
-        ## optimize loop
-        idx_str = f'0{i}' if i < 10 else f'{i}' 
-        opt_csv_name_str = f'opt_log{idx_str}.csv'
-        save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str, seed=seed)
-        
-        ## save results
-        with open(save_path / f'results.csv', 'a') as f:
-            writer_object = DictWriter(f, save_dict.keys())
-            if f.tell() == 0:
-                writer_object.writeheader()
-            writer_object.writerow(save_dict)
-        # except:
-        #     save_dict = {'nx': nx, 'gamma_val': gamma,'misfit': np.nan,'reg': np.nan,'u_sol1': np.nan,'u_d1': np.nan,'u_sol2': np.nan,'u_d2': np.nan,'m_sol': np.nan,'forcing': np.nan,'g1': np.nan,'g2': np.nan,'gradnorm': np.nan,'gradnorm_list': np.nan,'u_oce1': np.nan,'u_oce2': np.nan,'mtrue': np.nan,'noise_level': np.nan, 'run_time': np.nan,}
-        #     with open(save_path / f'results.csv', 'a') as f:
-        #         writer_object = DictWriter(f, save_dict.keys())
-        #         if f.tell() == 0:
-        #             writer_object.writeheader()
-        #         writer_object.writerow(save_dict)
-        #     failed_iter.append((i,gamma))
-        #     pass
+        try:
+            ## optimize loop
+            idx_str = f'0{i}' if i < 10 else f'{i}' 
+            opt_csv_name_str = f'opt_log{idx_str}.csv'
+            save_dict = loop_run(gamma, nx, a,b, omega, oce_val, beta1, beta2,noise_level, save_path, opt_csv_name_str, seed=seed)
+            
+            ## save results
+            with open(save_path / f'results.csv', 'a') as f:
+                writer_object = DictWriter(f, save_dict.keys())
+                if f.tell() == 0:
+                    writer_object.writeheader()
+                writer_object.writerow(save_dict)
+        except:
+            save_dict = {'nx': nx, 'gamma_val': gamma,'misfit': np.nan,'reg': np.nan,'u_sol1': np.nan,'u_d1': np.nan,'u_sol2': np.nan,'u_d2': np.nan,'m_sol': np.nan,'forcing': np.nan,'g1': np.nan,'g2': np.nan,'gradnorm': np.nan,'gradnorm_list': np.nan,'u_oce1': np.nan,'u_oce2': np.nan,'mtrue': np.nan,'noise_level': np.nan, 'run_time': np.nan,}
+            with open(save_path / f'results.csv', 'a') as f:
+                writer_object = DictWriter(f, save_dict.keys())
+                if f.tell() == 0:
+                    writer_object.writeheader()
+                writer_object.writerow(save_dict)
+            failed_iter.append((i,gamma))
+            pass
     print(failed_iter)
     # os.system('say "your algorithm has finished"')
 
@@ -618,9 +618,11 @@ if __name__ == '__main__':
     import concurrent.futures
     seeds = range(50)
     noises = [0.03]
-    import itertools
-    arguments = list(itertools.product(seeds, noises))
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
-        executor.map(main, *zip(*arguments))
+    main(0,noise_level=0.03)
+    # import itertools
+    # arguments = list(itertools.product(seeds, noises))
+
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
+    #     executor.map(main, *zip(*arguments))
 

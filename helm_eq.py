@@ -681,7 +681,7 @@ class dual_data_run():
                 import csv
                 with open(csv_path, 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'rel_gradnorm', 'alpha', 'toldcg', 'm_sol', 'u_sol1', 'u_sol2'])
+                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'rel_gradnorm', 'alpha', 'toldcg', 'gauss_newt', 'm_sol', 'u_sol1', 'u_sol2'])
 
         print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      min|yTHx - xTHy|")
         gradnorm_list = []
@@ -739,15 +739,16 @@ class dual_data_run():
  
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
-            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter < 6))
+            gauss_newt = (iter < 6) # if iter < 6, use gauss newton
+            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=gauss_newt)
             # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=False)
             self.Hess = Hess_Apply
 
             # Plot eigenvalues
-            if iter % 10 == 0 and plot_eigval:
-                lmbda, _ = self.eigenvalue_request(m, p=20)
-                plt.semilogy(lmbda[:10], 'o-', label=f'iter {iter}')
-                plt.legend()
+            # if iter % 10 == 0 and plot_eigval:
+            #     lmbda, _ = self.eigenvalue_request(m, p=20)
+            #     plt.semilogy(lmbda[:10], 'o-', label=f'iter {iter}')
+            #     plt.legend()
 
             P = self.R + self.gamma * self.M
             self.bc_adj.apply(P)
@@ -817,7 +818,7 @@ class dual_data_run():
             if save_opt_log:
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
-                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
+                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, gauss_newt, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
 
             
             print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")

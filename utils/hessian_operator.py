@@ -445,13 +445,13 @@ class HessianOperator_comb():
         # Misfit term
         C1 = self.C1.copy()
         self.bc_adj.apply(C1)
-        C1.transpmult(self.dp1, self.CT_dp)
-        y.axpy(1, self.CT_dp)
+        C1.transpmult(self.dp1, self.CT_dp1)
+        y.axpy(1., self.CT_dp1)
 
         C2 = self.C2.copy()
         self.bc_adj.apply(C2)
-        C2.transpmult(self.dp2, self.CT_dp)
-        y.axpy(1., self.CT_dp)
+        C2.transpmult(self.dp2, self.CT_dp2)
+        y.axpy(1., self.CT_dp2)
 
         # self.Wum2.transpmult(self.du2, self.Wum_du2)
         # y.axpy(1., self.Wum_du2)
