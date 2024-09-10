@@ -267,8 +267,8 @@ class single_data_run():
             if iter == 1:
                 gradnorm_ini = gradnorm
 
-            rel_gradnorm = (gradnorm/(gradnorm_ini+1e-15))
-            tolcg = min(0.5, rel_gradnorm)
+            rel_gradnorm = (gradnorm/gradnorm_ini)
+            tolcg = min(0.5, max(rel_gradnorm,1e-9))
 
             # define the Hessian apply operator (with preconditioner)
             if self.bc_type == 'DBC':
@@ -716,8 +716,8 @@ class dual_data_run():
 
             C1.transpmult(p1.vector(), CT_p1)
             C2.transpmult(p2.vector(), CT_p2)
-            CT_p.axpy(1., CT_p1)
-            CT_p.axpy(1., CT_p2)
+            CT_p.axpy(self.beta1.values(), CT_p1)
+            CT_p.axpy(self.beta2.values(), CT_p2)
 
             MG = CT_p + self.R * m.vector()
             if iter == 1:
@@ -739,9 +739,9 @@ class dual_data_run():
  
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
-            gauss_newt = (iter < 6) # if iter < 6, use gauss newton
-            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=gauss_newt)
-            # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=False)
+            gauss_newt = (iter < 0) # if iter < 6, use gauss newton
+            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=gauss_newt, beta1=self.beta1, beta2=self.beta2)
+            # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=False, beta1=self.beta1, beta2=self.beta2)
             self.Hess = Hess_Apply
 
             # Plot eigenvalues
@@ -772,6 +772,7 @@ class dual_data_run():
             # print(m_delta.get_local()[0:2],m_delta.get_local()[-2:])
             total_cg_iter += Hess_Apply.cgiter
 
+            test_mdelta = m_delta.get_local()
             # linesearch
             alpha = 1
             descent = 0
@@ -873,13 +874,13 @@ class dual_data_run():
 
     def wf_matrices_setup(self,m, u1, u2, p1, p2):
         # weak form for setting up matrices
-        Wum_equ1 = self.beta1 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p1)) * ufl.dx
-        C_equ1   = self.beta1 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u1), ufl.grad(self.u_test)) * ufl.dx
-        Wmm_equ1 = self.beta1 * ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u1),  ufl.grad(p1)) * ufl.dx
+        Wum_equ1 = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p1)) * ufl.dx
+        C_equ1   = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u1), ufl.grad(self.u_test)) * ufl.dx
+        Wmm_equ1 = ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u1),  ufl.grad(p1)) * ufl.dx
 
-        Wum_equ2 = self.beta2 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p2)) * ufl.dx
-        C_equ2   = self.beta2 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u2), ufl.grad(self.u_test)) * ufl.dx
-        Wmm_equ2 = self.beta2 * ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u2),  ufl.grad(p2)) * ufl.dx
+        Wum_equ2 = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p2)) * ufl.dx
+        C_equ2   = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u2), ufl.grad(self.u_test)) * ufl.dx
+        Wmm_equ2 = ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u2),  ufl.grad(p2)) * ufl.dx
 
         M_equ   = ufl.inner(self.m_trial, self.m_test) * ufl.dx
 

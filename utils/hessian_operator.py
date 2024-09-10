@@ -340,7 +340,7 @@ class HessianOperatorNBC():
 
 class HessianOperator_comb():
     cgiter = 0
-    def __init__(self, R, W, Wmm1, C1, A1, adj_A1, Wum1, Wmm2, C2, A2, adj_A2, Wum2, bc_adj, gauss_newton_approx=False):
+    def __init__(self, R, W, Wmm1, C1, A1, adj_A1, Wum1, Wmm2, C2, A2, adj_A2, Wum2, bc_adj, gauss_newton_approx=False, beta1=None, beta2=None):
         self.R = R
         self.W = W
         self.gauss_newton_approx = gauss_newton_approx
@@ -350,6 +350,9 @@ class HessianOperator_comb():
         self.C1 = C1
         self.A1 = A1
         self.adj_A1 = adj_A1
+
+        self.beta1 = beta1
+        self.beta2 = beta2
         
         self.Wum1 = Wum1
         # self.gauss_newton_approx = gauss_newton_approx
@@ -479,9 +482,10 @@ class HessianOperator_comb():
 
         # Misfit term
         C1.transpmult(self.dp1, self.CT_dp1)
-        y.axpy(1., self.CT_dp1)
+        test_beta1 = self.beta1.values()
+        y.axpy(self.beta1.values(), self.CT_dp1)
         Wum1.transpmult(self.du1, self.Wum_du1)
-        y.axpy(1., self.Wum_du1)
+        y.axpy(self.beta1.values(), self.Wum_du1)
 
     def Newton_NBC(self, v, y):
         # incremental forward
@@ -498,16 +502,18 @@ class HessianOperator_comb():
         # Misfit term
         C2.transpmult(self.dp2, self.CT_dp2)
         Wum2.transpmult(self.du2, self.Wum_du2)
-        y.axpy(1., self.CT_dp2)
-        y.axpy(1., self.Wum_du2)
+        test_beta2 = self.beta2.values()
+        y.axpy(self.beta2.values(), self.CT_dp2)
+        y.axpy(self.beta2.values(), self.Wum_du2)
 
     def mult_Newton(self, v, y):
         # self.W.init_vector(y,0)
         self.Newton_DBC(v, y)
         self.Newton_NBC(v, y)
+        test_y = y.get_local()
 
         # Reg/Prior term
-        RpWmm = self.R + self.Wmm1 + self.Wmm2
+        RpWmm = self.R + self.beta1 * self.Wmm1 + self.beta2 * self.Wmm2
         RpWmm = self.apply_symm_bc_2_matrix(RpWmm)
         y.axpy(1.,RpWmm*v)
 
