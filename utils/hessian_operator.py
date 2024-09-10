@@ -67,8 +67,8 @@ class HessianOperator():
         dl.solve (self.adj_A, self.dp, rhs)
         
         # Reg/Prior term
-        self.R = self.apply_symm_bc_2_matrix(self.R)
-        self.R.mult(v,y)
+        RpWmm = self.apply_symm_bc_2_matrix(self.R) # I think this is missing a Wmm but for some reason without it works better
+        RpWmm.mult(v,y)
         
         # Misfit term
         C.transpmult(self.dp, self.CT_dp)
@@ -241,7 +241,7 @@ class HessianOperatorNBC():
         dl.solve (self.adj_A, self.dp, rhs)
         
         # Reg/Prior term
-        RpWmm = (self.R + self.Wmm)
+        RpWmm = (self.R)
         RpWmm = self.apply_symm_bc_2_matrix(RpWmm)
         RpWmm.mult(v,y)
         
@@ -416,12 +416,11 @@ class HessianOperator_comb():
         dl.solve (A1, self.du1, rhs)
 
         C2 = self.C2.copy()
-        self.bc_adj.apply(C2)
-        rhs = -(self.C2 * v)
-        self.bc_adj.apply(rhs)
-        A2 = self.A2.copy()
-        self.bc_adj.apply(A2)
-        dl.solve (A2, self.du2, rhs)
+        # self.bc_adj.apply(C2)
+        rhs = -(C2 * v)
+        # self.bc_adj.apply(rhs)
+        # self.bc_adj.apply(A2)
+        dl.solve (self.A2, self.du2, rhs)
         
         # incremental adjoint
         W = self.W.copy()
@@ -432,32 +431,25 @@ class HessianOperator_comb():
         dl.solve (self.adj_A1, self.dp1, rhs)
 
         rhs = -(self.W * self.du2) #-  self.Wum2 * v
-        self.bc_adj.apply(rhs)
+        # self.bc_adj.apply(rhs)
         adj_A2 = self.adj_A2.copy()
-        self.bc_adj.apply(adj_A2)
+        # self.bc_adj.apply(adj_A2)
         dl.solve (adj_A2, self.dp2, rhs)
 
         # Reg/Prior term
-        R = self.R
-        self.bc_adj.apply(R)
+        R = self.apply_symm_bc_2_matrix(self.R)
         R.mult(v,y)
-        Wmm2 = self.Wmm2.copy()
-        self.bc_adj.apply(Wmm2)
-        y.axpy(1.,Wmm2*v)
+        # Wmm2 = self.Wmm2.copy()
+        # self.bc_adj.apply(Wmm2)
+        # y.axpy(1.,Wmm2*v)
         
         # Misfit term
-        C1 = self.C1.copy()
-        self.bc_adj.apply(C1)
         C1.transpmult(self.dp1, self.CT_dp1)
-        y.axpy(1., self.CT_dp1)
+        y.axpy(self.beta1.values(), self.CT_dp1)
 
-        C2 = self.C2.copy()
-        self.bc_adj.apply(C2)
+        # self.bc_adj.apply(C2)
         C2.transpmult(self.dp2, self.CT_dp2)
-        y.axpy(1., self.CT_dp2)
-
-        # self.Wum2.transpmult(self.du2, self.Wum_du2)
-        # y.axpy(1., self.Wum_du2)
+        y.axpy(self.beta2.values(), self.CT_dp2)
 
     def Newton_DBC(self, v, y):
         # incremental forward
