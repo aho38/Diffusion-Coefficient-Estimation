@@ -737,7 +737,7 @@ class dual_data_run():
                 gradnorm_ini = gradnorm
             
             gradnorm_rel = gradnorm / gradnorm_ini
-            tolcg = min(0.5, max(gradnorm_rel,1e-9))
+            tolcg = min(1e-3, max(gradnorm_rel,1e-3))
  
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
@@ -821,10 +821,10 @@ class dual_data_run():
             if save_opt_log:
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
-                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, gauss_newt, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
+                    writer.writerow([iter, solver.iter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, gauss_newt, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
 
             
-            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
+            print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
 
             if alpha < 1e-3:
                 alpha_iter += 1
