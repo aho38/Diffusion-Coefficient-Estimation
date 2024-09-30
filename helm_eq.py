@@ -685,7 +685,7 @@ class dual_data_run():
                     writer = csv.writer(f)
                     writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'rel_gradnorm', 'alpha', 'toldcg', 'gauss_newt', 'm_sol', 'u_sol1', 'u_sol2'])
 
-        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      min|yTHx - xTHy|")
+        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      GaussNewt      min|yTHx - xTHy|")
         gradnorm_list = []
         start_time = time.time()
 
@@ -737,7 +737,7 @@ class dual_data_run():
                 gradnorm_ini = gradnorm
             
             gradnorm_rel = gradnorm / gradnorm_ini
-            tolcg = min(0.5, max(gradnorm_rel,1e-9))
+            tolcg = min(1e-5, max(gradnorm_rel,1e-9))
  
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
@@ -747,10 +747,15 @@ class dual_data_run():
             self.Hess = Hess_Apply
 
             # Plot eigenvalues
-            # if iter % 10 == 0 and plot_eigval:
-            #     lmbda, _ = self.eigenvalue_request(m, p=20)
-            #     plt.semilogy(lmbda[:10], 'o-', label=f'iter {iter}')
-            #     plt.legend()
+            if iter % 1 == 0 and plot_eigval:
+                k = 30
+                lmbda, _ = self.eigenvalue_request(m, p=20, k=k)
+                plt.semilogy((lmbda[:k]), 'o-', label=f'iter {iter}')
+                plt.plot((0,k), (1,1), '-r')
+                plt.legend()
+                plt.xticks(range(k+1),[str(i) for i in range(1,k+2)])
+                plt.show()
+                print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      GaussNewt      min|yTHx - xTHy|")
 
             P = self.R + self.gamma * self.M
             self.bc_adj.apply(P)
@@ -768,11 +773,12 @@ class dual_data_run():
             solver.set_preconditioner(Psolver)
             solver.parameters["rel_tolerance"] = tolcg
             solver.parameters["zero_initial_guess"] = True
-            solver.parameters["print_level"] = -1
+            solver.parameters["print_level"] = 1
             
             solver.solve(m_delta, -MG)
             # print(m_delta.get_local()[0:2],m_delta.get_local()[-2:])
-            total_cg_iter += Hess_Apply.cgiter
+            # total_cg_iter += Hess_Apply.cgiter
+            total_cg_iter += solver.iter
 
             test_mdelta = m_delta.get_local()
             # linesearch
@@ -821,10 +827,10 @@ class dual_data_run():
             if save_opt_log:
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
-                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, gauss_newt, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
+                    writer.writerow([iter, solver.iter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, gauss_newt, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
 
             
-            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
+            print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:2s} {tolcg:5.3e}{sp:2s} {gauss_newt} {sp:1s} {sym_val:1.3e}")
 
             if alpha < 1e-3:
                 alpha_iter += 1
