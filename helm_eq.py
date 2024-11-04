@@ -186,6 +186,7 @@ class single_data_run():
                 save_opt_log = False,
                 opt_csv_name = None,
                 plot_opt_step = False,
+                real_data = False,
                 ):
         # initialize iter counters
         iter = 1
@@ -219,7 +220,7 @@ class single_data_run():
                 import csv
                 with open(csv_path, 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
+                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||','rel_gradnorm', 'alpha', 'toldcg', 'GaussNewt', 'm_sol', 'u_sol', 'p_sol'])
 
         # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
         print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg   GaussNewt    symm_diff")
@@ -252,7 +253,8 @@ class single_data_run():
             self.CT_P = CT_p
             MG = CT_p + self.R * m.vector()
             M = self.M.copy()
-            self.bc_adj.apply(MG) # this is where I get gradient of m to be zero on the boundary
+            if not real_data:
+                self.bc_adj.apply(MG) # this is where I get gradient of m to be zero on the boundary
             self.bc_adj.apply(M)
             dl.solve(M, g, MG)
             self.g = g
@@ -268,13 +270,17 @@ class single_data_run():
                 gradnorm_ini = gradnorm
 
             rel_gradnorm = (gradnorm/gradnorm_ini)
-            tolcg = min(0.5, max(rel_gradnorm,1e-9))
+            tolcg = min(0.5, max(rel_gradnorm,1e-4))
 
             # define the Hessian apply operator (with preconditioner)
             if self.bc_type == 'DBC':
                 gauss_newt = (iter<6)
-                from utils.hessian_operator import HessianOperator
-                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=gauss_newt )
+                if real_data:
+                    from utils.hessian_operator import HessianOperatorRealData
+                    Hess_Apply = HessianOperatorRealData(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=gauss_newt )
+                else:
+                    from utils.hessian_operator import HessianOperator
+                    Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=gauss_newt )
                 # Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
                 self.Hess = Hess_Apply
             if self.bc_type == 'NBC':
@@ -312,6 +318,7 @@ class single_data_run():
             descent = 0
             no_backtrack = 0
             m_prev.assign(m)
+            # This is for backtracking
             while descent == 0 and no_backtrack < 10:
                 m.vector().axpy(alpha, m_delta )
 
@@ -352,7 +359,13 @@ class single_data_run():
             ## compute smallest Eigenvalue of Hessian
             sp = " "
             symm_diff = self.Hess.hess_sym_check(self.Vm)
-            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {Hess_Apply.gauss_newton_approx} {sp:1s} {symm_diff:1.2e}")
+            if iter > 1:
+                diff = cost_prev_iter - cost_new 
+                # print(diff)
+                if diff < 1e-10:
+                    converged = True
+            cost_prev_iter = cost_new
+            print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {Hess_Apply.gauss_newton_approx} {sp:1s} {symm_diff:1.2e}")
             # if self.nx < 150 and hasattr(self.Hess, 'array'):
             #     self.eig_val, eig_func = np.linalg.eig(self.Hess.array())
             #     print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
@@ -367,7 +380,7 @@ class single_data_run():
             if save_opt_log:
                 with open(csv_path, 'a') as file:
                     writer = csv.writer(file)
-                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
+                    writer.writerow([iter, solver.iter, cost_new, misfit_new, reg_new, graddir, gradnorm, rel_gradnorm, alpha, tolcg, gauss_newt, m.compute_vertex_values(), u.compute_vertex_values().tolist(), p.compute_vertex_values().tolist()])
 
             if alpha < 1e-3:
                 alpha_iter += 1
@@ -600,6 +613,7 @@ class dual_data_run():
 
         self.ud1 = ud1
         self.ud2 = ud2
+        # print(ud2.compute_vertex_values())
 
         if noise_level is not None:
             self.noise_level = noise_level
@@ -737,7 +751,7 @@ class dual_data_run():
                 gradnorm_ini = gradnorm
             
             gradnorm_rel = gradnorm / gradnorm_ini
-            tolcg = min(1e-5, max(gradnorm_rel,1e-9))
+            tolcg = min(0.5, max(gradnorm_rel,1e-9))
  
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
@@ -772,8 +786,9 @@ class dual_data_run():
             solver.set_operator(Hess_Apply)
             solver.set_preconditioner(Psolver)
             solver.parameters["rel_tolerance"] = tolcg
+            # solver.parameters["abs_tolerance"] = 1e-2
             solver.parameters["zero_initial_guess"] = True
-            solver.parameters["print_level"] = 1
+            solver.parameters["print_level"] = -1
             
             solver.solve(m_delta, -MG)
             # print(m_delta.get_local()[0:2],m_delta.get_local()[-2:])
@@ -829,8 +844,14 @@ class dual_data_run():
                     writer = csv.writer(file)
                     writer.writerow([iter, solver.iter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, gauss_newt, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
 
-            
-            print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
+            if iter > 1:
+                diff = cost_prev_iter - cost_new 
+                # print(diff)
+                if diff < 1e-10:
+                    converged = True
+                    print( "Newton's method converged in ",iter,"  iterations due to small change in cost")
+            cost_prev_iter = cost_new
+            print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {Hess_Apply.gauss_newton_approx} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
 
             if alpha < 1e-3:
                 alpha_iter += 1
@@ -867,16 +888,16 @@ class dual_data_run():
                     'gradnorm_list': gradnorm_list,
                     'u_oce1': self.u_oce1,
                     'u_oce2': self.u_oce2,
-                    'm_true': self.mtrue.compute_vertex_values().tolist(),
-                    'noise_level': self.noise_level,
+                    # 'm_true': self.mtrue.compute_vertex_values().tolist(),
+                    # 'noise_level': self.noise_level,
                     'run_time': run_time,
                     }
 
-        # if hasattr(self, 'mtrue'):
-        #     self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
+        if hasattr(self, 'mtrue'):
+            self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
 
-        # if hasattr(self, 'noise_level'):
-        #     self.save_dict['noise_level'] = self.noise_level
+        if hasattr(self, 'noise_level'):
+            self.save_dict['noise_level'] = self.noise_level
         
         return m, u1, u2
 

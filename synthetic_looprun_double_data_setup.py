@@ -103,6 +103,10 @@ def loop_run(gamma, nx, a, b, omega, oce_val, beta1, beta2, noise_level, save_pa
     run.data_setup(y1, y2 ,normalize=False)
     from utils.general import apply_noise
     ud1, ud2, A1, b1, A2, b2 = run.fwd_solve(m_true)
+    # ud1 = dl.Function(run.Vu)
+    # ud1.vector().set_local(y1[::-1])
+    # ud2 = dl.Function(run.Vu)
+    # ud2.vector().set_local(y2[::-1])
     np.random.seed(seed)
     apply_noise(noise_level, ud1, A1)
     np.random.seed(seed)
@@ -537,7 +541,7 @@ class double_data_loop_run():
 def main(seed,noise_level):   
 
     failed_iter = []
-    nx = 64
+    nx = 128
     # nx_list = [4,8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,160,192,224,256,288,320,352]
     # nx_list = np.linspace(4,164,41,dtype=int)
     # nx_list = [4,8,16,32,64,128,256,512]
@@ -552,8 +556,8 @@ def main(seed,noise_level):
     # for j in range(10):
     #     seed = j
 
-    beta1 = 1.0
-    beta2 = 0.0
+    beta1 = 0.5
+    beta2 = 0.5
 
     ## set up save path
     now = datetime.now()
@@ -563,14 +567,14 @@ def main(seed,noise_level):
     if beta1 == 0.5 and beta2 == 0.5:
         # dir_name = 'nx_loop_double_data'
         # dir_name = f'gamma_loop_double_data_noise_0dot5_seed_{seed}'
-        dir_name = f'double_data_nx_64_noise_{noise_level_str}_preconditioned_fixcgtol/gamma_loop_double_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
+        dir_name = f'double_data_nx_{int(nx)}_noise_{noise_level_str}_preconditioned3-2/gamma_loop_double_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     elif beta1 == 1.0 and beta2 == 0.0:
         # dir_name = 'nx_loop_DBC_single_data'
         # dir_name = f'gamma_loop_DBC_single_data_noise_0dot1_seed_{seed}'
-        dir_name = f'DBC_nx_64_noise_{noise_level_str}_preconditioned_fixcgtol/gamma_loop_DBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
+        dir_name = f'DBC_nx_{int(nx)}_noise_{noise_level_str}_preconditioned3/gamma_loop_DBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     elif beta1 == 0.0 and beta2 == 1.0:
         # dir_name = 'nx_loop_NBC_single_data'
-        dir_name = f'NBC_nx_64_noise_{noise_level_str}_preconditioned_fixcgtol/gamma_loop_NBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
+        dir_name = f'NBC_nx_{int(nx)}_noise_{noise_level_str}_preconditioned3/gamma_loop_NBC_single_data_nx_{nx}_noise_{noise_level_str}_seed_{seed_str}'
     else:
         raise ValueError('beta1 and beta2 must be 0.5 or 1.0 or 0.0')
     dt_string = now.strftime("%Y%m%d-%H%M%S")
