@@ -848,7 +848,6 @@ class dual_data_run():
             gradnorm_list += [gradnorm]
             # print opt log and write opt log
             sym_val = 0.0 # Hess_Apply.hess_sym_check(self.Vm)
-            cost_prev_iter = cost_new
             print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {Hess_Apply.gauss_newton_approx} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
             if save_opt_log:
                 with open(csv_path, 'a') as file:
@@ -861,6 +860,7 @@ class dual_data_run():
                     if diff < 1e-10:
                         converged = True
                         print( "Newton's method converged in ",iter,"  iterations due to small change in cost")
+            cost_prev_iter = cost_new
 
             if alpha < 1e-3:
                 alpha_iter += 1
