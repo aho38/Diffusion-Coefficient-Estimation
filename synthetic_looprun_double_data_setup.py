@@ -659,10 +659,10 @@ if __name__ == '__main__':
     seeds = range(20)
     noises = [0.03]
 
-    # main(0,noise_level=0.03)
-    import itertools
-    arguments = list(itertools.product(seeds, noises))
+    main(0,noise_level=0.03)
+    # import itertools
+    # arguments = list(itertools.product(seeds, noises))
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
-        executor.map(main, *zip(*arguments))
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=None) as executor:
+    #     executor.map(main, *zip(*arguments))
 
