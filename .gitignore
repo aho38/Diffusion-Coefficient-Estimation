@@ -1,4 +1,6 @@
 **/log/
 **/lake_data/*
 *.xls
-*__pycache__*
+*jitfailure*
+**/__pycache__/ # the "**" followed by slash means match all directories
+__pycache__/

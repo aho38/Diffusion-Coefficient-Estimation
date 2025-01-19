@@ -12,8 +12,10 @@ import json
 from pathlib import Path
 import logging
 import math
+import csv
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
+import time
 from utils.general import increment_path, DboundaryL, DboundaryR, Dboundary, NboundaryL, NboundaryR, data_normalization
 
 dl.set_log_active(False)
@@ -29,10 +31,14 @@ class single_data_run():
                 oce_val, # ocean value
                 normalized_mean, #'mean for normalization
                 func='Lagrange',
+                save_path=None,
                 ) -> None:
         self.a, self.b, self.nx = a, b, nx
         self.mesh = dl.IntervalMesh(nx, a, b)
         self.Vm = self.Vu = dl.FunctionSpace(self.mesh, func, 1)
+
+        if save_path is not None:
+            self.save_path = save_path
 
         self.u_trial, self.p_trial, self.m_trial = dl.TrialFunction(self.Vu), dl.TrialFunction(self.Vu), dl.TrialFunction(self.Vm)
         self.u_test, self.p_test, self.m_test = dl.TestFunction(self.Vu), dl.TestFunction(self.Vu), dl.TestFunction(self.Vm)
@@ -66,6 +72,8 @@ class single_data_run():
         if isinstance(f_type, np.ndarray):
             f = dl.Function(self.Vu)
             f.vector().set_local(f_type[::-1])
+        if isinstance(f_type, dl.function.function.Function):
+            f = f_type
         self.f = f
     
     def extra_f_setup(self, **kwargs):
@@ -76,6 +84,8 @@ class single_data_run():
         self.mtrue = mtrue
         
     def BC_setup(self,u0L, u0R):
+        self.u0L = u0L
+        self.u0R = u0R
         if self.bc_type == 'DBC':
             self.DBC_setup(u0L, u0R)
         elif self.bc_type == 'NBC':
@@ -99,6 +109,8 @@ class single_data_run():
         j0 = dl.Constant(f'{u0L}') # left boundary
         j1 = dl.Constant(f'{u0R}') # right boundary
         self.ds, self.j0, self.j1 = ds, j0, j1
+
+        self.bc_adj = dl.DirichletBC(self.Vu, dl.Constant(0.), 'on_boundary')
     
     def data_setup(self, PATH = None, ud_array=None, ud = None, data_index=2, normalize=False):
         '''
@@ -107,26 +119,34 @@ class single_data_run():
         if PATH is not None:
             df_dict = pd.read_excel(r"lake_data/2008_10_14_initialData.xls", header=None)
             data_value = df_dict[data_index].to_numpy()
+            if normalize:
+                data_value = data_normalization(data_value, self.normalized_mean, data_value.ptp()) #ptp point-to-point, a.k.a. range
+            ud = dl.Function(self.Vu)
+            ud.vector().set_local(data_value[::-1])
         elif ud_array is not None:
             data_value = ud_array
+            if normalize:
+                data_value = data_normalization(data_value, self.normalized_mean, data_value.ptp()) #ptp point-to-point, a.k.a. range
+            ud = dl.Function(self.Vu)
+            ud.vector().set_local(data_value[::-1])
         
-        if normalize:
-            data_value = data_normalization(data_value, self.normalized_mean, data_value.ptp()) #ptp point-to-point, a.k.a. range
+        
 
-        ud = dl.Function(self.Vu)
-        ud.vector().set_local(data_value[::-1])
+        
         self.ud = ud
     
     
     def fwd_solve(self, 
             m, #'Fenics function of diffusion coefficient',
             ):
+        if not hasattr(self, 'bc_type'):
+            raise Exception('Please set the boundary condition type')
         u = dl.Function(self.Vu)
         if self.bc_type == 'NBC':
             a_state = eval(self.a_state_str)
             L_state = eval(self.L_state_str)
 
-            state_A, state_b = dl.assemble_system (a_state, L_state)
+            state_A, state_b = dl.assemble_system   (a_state, L_state)
             dl.solve (state_A, u.vector(), state_b)
         
         if self.bc_type == 'DBC':
@@ -145,7 +165,7 @@ class single_data_run():
         p = dl.Function(self.Vu)
         # weak form for setting up the adjoint equation
         a_adj = eval(self.a_adj_str)
-        L_adj = eval(self.L_adj_str)
+        L_adj = eval(self.L_adj_str) # todo: matrix doesn't need
 
         if self.bc_type == 'NBC':
             adjoint_A, adjoint_RHS = dl.assemble_system(a_adj, L_adj)
@@ -163,7 +183,10 @@ class single_data_run():
                 tol, #'tolerance of grad',
                 c, #'constant of armijo linesearch',
                 maxiter, #'maximum newton"s step',
+                save_opt_log = False,
+                opt_csv_name = None,
                 plot_opt_step = False,
+                real_data = False,
                 ):
         # initialize iter counters
         iter = 1
@@ -181,13 +204,34 @@ class single_data_run():
         self.R.init_vector(m_delta,0)
         self.R.init_vector(g,0)
 
-        print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+        if save_opt_log:
+            ## make sure opt name is set if save_opt_log is True
+            if opt_csv_name is None:
+                raise ValueError("Please set opt_csv_name if save_opt_log is True")
+            
+            log_path = self.save_path / 'log_opt/'
+            if not log_path.exists():
+                log_path.mkdir()
+
+            csv_path = log_path / opt_csv_name
+            if os.path.exists(csv_path):
+                pass
+            else:
+                import csv
+                with open(csv_path, 'w') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||','rel_gradnorm', 'alpha', 'toldcg', 'GaussNewt', 'm_sol', 'u_sol', 'p_sol'])
+
+        # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg   GaussNewt    symm_diff")
         gradnorm_list = []
+        start_time = time.time()
         self.eigval_list = []
         # try:
         while iter <  maxiter and not converged:
 
             p, adjoint_A, _ = self.adj_solve(m, u)
+            self.p = p
 
             # assemble matrix C
             Wum_equ, C_equ, Wmm_equ, M_equ = self.wf_matrices_setup(m,u,p)
@@ -196,7 +240,7 @@ class single_data_run():
             # assemble matrix M
             if iter == 1:
                 self.M = dl.assemble(M_equ) 
-
+    
             # assemble W_ua and R
             Wum = dl.assemble (Wum_equ)
             Wmm = dl.assemble (Wmm_equ)
@@ -206,30 +250,56 @@ class single_data_run():
             C.init_vector(CT_p,1)
             C.transpmult(p.vector(), CT_p)
             # print(np.linalg.norm(CT_p.get_local()))
+            self.CT_P = CT_p
             MG = CT_p + self.R * m.vector()
-            dl.solve(self.M, g, MG)
+            M = self.M.copy()
+            if not real_data:
+                self.bc_adj.apply(MG) # this is where I get gradient of m to be zero on the boundary
+            self.bc_adj.apply(M)
+            dl.solve(M, g, MG)
+            self.g = g
+            self.MG = MG
 
             # calculate the norm of the gradient
             grad2 = g.inner(MG)
             gradnorm = math.sqrt(grad2)
 
+            # raise Exception('Stop')
             # set the CG tolerance (use Eisenstat–Walker termination criterion)
             if iter == 1:
                 gradnorm_ini = gradnorm
-            tolcg = min(0.5, math.sqrt(gradnorm/(gradnorm_ini+1e-15)))
+
+            rel_gradnorm = (gradnorm/gradnorm_ini)
+            tolcg = min(0.5, max(rel_gradnorm,1e-4))
 
             # define the Hessian apply operator (with preconditioner)
             if self.bc_type == 'DBC':
-                from utils.hessian_operator import HessianOperator
-                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=(iter<6) )
+                gauss_newt = (iter<6)
+                if real_data:
+                    from utils.hessian_operator import HessianOperatorRealData
+                    Hess_Apply = HessianOperatorRealData(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=gauss_newt )
+                else:
+                    from utils.hessian_operator import HessianOperator
+                    Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=gauss_newt )
+                # Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
                 self.Hess = Hess_Apply
             if self.bc_type == 'NBC':
+                gauss_newt = (iter<6)
                 from utils.hessian_operator import HessianOperatorNBC as HessianOperator
-                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, gauss_newton_approx=(iter<6) )
+                Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=gauss_newt )
+                # Hess_Apply = HessianOperator(self.R, Wmm, C, state_A, adjoint_A, self.W, Wum, self.bc_adj, gauss_newton_approx=False )
                 self.Hess = Hess_Apply
             P = self.R + self.gamma * self.M
+            self.bc_adj.apply(P)
+            # get indentity matrix for preconditioner
+            form = dl.inner(self.u_test, self.u_trial)*dl.dx
+            I = dl.assemble(form)
+            I.zero()
+            I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
+
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
             Psolver.set_operator(P)
+            # Psolver.set_operator(I)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
@@ -237,12 +307,9 @@ class single_data_run():
             solver.parameters["rel_tolerance"] = tolcg
             solver.parameters["zero_initial_guess"] = True
             solver.parameters["print_level"] = -1
-
-            # Plotting the Eigenvalues
-            k = self.nx
-            p = self.nx
-
             solver.solve(m_delta, -MG)
+            # print(m_delta.get_local()[0:2],m_delta.get_local()[-2:])
+
             # print(np.linalg.norm(m_delta.get_local()))
             total_cg_iter += Hess_Apply.cgiter
 
@@ -251,12 +318,15 @@ class single_data_run():
             descent = 0
             no_backtrack = 0
             m_prev.assign(m)
+            # This is for backtracking
             while descent == 0 and no_backtrack < 10:
                 m.vector().axpy(alpha, m_delta )
 
                 # solve the state/forward problem
                 u, state_A, state_b = self.fwd_solve(m)
                 dl.solve(state_A, u.vector(), state_b)
+                self.state_A = state_A
+                self.state_b = state_b
 
                 # evaluate cost
                 [cost_new, misfit_new, reg_new] = self.cost(u, m)
@@ -273,54 +343,97 @@ class single_data_run():
                     m.assign(m_prev)  # reset a
 
             # calculate sqrt(-G * D)
-            graddir = math.sqrt(- MG.inner(m_delta) )
+            if MG.inner(m_delta) >=0:
+                graddir = np.nan
+            else:
+                graddir = math.sqrt(- MG.inner(m_delta) )
 
             if plot_opt_step:
                 from utils.plot import plot_step_single
                 plot_step_single(u.compute_vertex_values(), self.ud.compute_vertex_values(), 
                           m.compute_vertex_values(), self.mtrue.compute_vertex_values(), self.gamma)
-                print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+                # print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+                print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg")
 
 
-            sp = ""
+            ## compute smallest Eigenvalue of Hessian
+            sp = " "
+            symm_diff = self.Hess.hess_sym_check(self.Vm)
+            if iter > 1:
+                diff = cost_prev_iter - cost_new 
+                # print(diff)
+                if diff < 1e-10:
+                    converged = True
+            cost_prev_iter = cost_new
+            print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {Hess_Apply.gauss_newton_approx} {sp:1s} {symm_diff:1.2e}")
+            # if self.nx < 150 and hasattr(self.Hess, 'array'):
+            #     self.eig_val, eig_func = np.linalg.eig(self.Hess.array())
+            #     print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
+            # else:
+            #     self.eig_val = np.nan
+            #     print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {rel_gradnorm:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e} {sp:1s} {np.real(np.min(self.eig_val)):5.3e} {sp:1s} {symm_diff:1.2e}")
+
+
             gradnorm_list += [gradnorm]
-            print( "%2d %2s %2d %3s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %8.5e %1s %1.2e %1s %5.3e" % \
-                (iter, sp, Hess_Apply.cgiter, sp, cost_old, sp, misfit_old, sp, reg_old, sp, \
-                graddir, sp, gradnorm, sp, alpha, sp, tolcg) )
+            
+            ## save opt log 
+            if save_opt_log:
+                with open(csv_path, 'a') as file:
+                    writer = csv.writer(file)
+                    writer.writerow([iter, solver.iter, cost_new, misfit_new, reg_new, graddir, gradnorm, rel_gradnorm, alpha, tolcg, gauss_newt, m.compute_vertex_values(), u.compute_vertex_values().tolist(), p.compute_vertex_values().tolist()])
 
-            if alpha < 1e-2:
+            if alpha < 1e-3:
                 alpha_iter += 1
-            if alpha_iter > 4:
+            if alpha_iter > 10:
                 print('Alpha too small: ')
                 break
 
             # check for convergence
             if gradnorm < tol and iter > 1:
                 converged = True
+                p, adjoint_A, adjoint_b = self.adj_solve(m, u)
+                self.p = p
+                self.adjoint_A, self.adjoint_b = adjoint_A, adjoint_b
                 print( "Newton's method converged in ",iter,"  iterations")
                 print( "Total number of CG iterations: ", total_cg_iter)
 
             iter += 1
         if not converged:
+            p, adjoint_A, adjoint_b = self.adj_solve(m, u)
+            self.p = p
+            self.adjoint_A, self.adjoint_b = adjoint_A, adjoint_b
             print( "Newton's method did not converge in ", maxiter, " iterations")
+        
+        run_time = time.time() - start_time
+        print("Run time: ", run_time)
 
-        self.save_dict = {'gamma_val': self.gamma,
+        self.save_dict = {'nx': self.nx,
+                    'gamma_val': self.gamma,
                     'misfit': misfit_old,
                     'reg': reg_old,
+                    'omega': self.omega,
+                    'gradnorm': gradnorm,
                     'u_sol': u.compute_vertex_values().tolist(),
                     'u_d': self.ud.compute_vertex_values().tolist(),
                     'm_sol': m.compute_vertex_values().tolist(),
                     'forcing': self.f.compute_vertex_values(self.mesh).tolist(),
-                    'omega': self.omega,
-                    'gradnorm': gradnorm,
+                    'g_sun': self.g_sun.compute_vertex_values().tolist(),
                     'u_oce': self.u_oce,
                     'gradnorm_list': gradnorm_list,
+                    'boundary_type': self.bc_type,
+                    'bcL': self.u0L,
+                    'bcR': self.u0R,
+                    'run_time': run_time,
                     }
         if hasattr(self,'mtrue'):
             self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
-        # except:
-        #     print('Something Went Wrong')
+
+        if hasattr(self, 'noise_level'):
+            self.save_dict['noise_level'] = self.noise_level
         
+        self.reg = reg_old
+        self.misfit = misfit_old
+
         return m, u
 
     
@@ -338,8 +451,9 @@ class single_data_run():
         misfit = diff.inner(self.W * diff)
         return [0.5 * reg + 0.5 * misfit, misfit, reg]
     
-    def eigenvalue_request(self, m, p=20):
-        k = self.nx
+    def eigenvalue_request(self, m, p=20, k =None):
+        if k == None:
+            k = self.nx
         P = self.R + self.gamma * self.M
         Psolver = dl.PETScKrylovSolver("cg", amg_method())
         Psolver.set_operator(P)
@@ -485,7 +599,7 @@ class dual_data_run():
         j1 = dl.Constant(f'{u0R}') # right boundary
         self.ds, self.j0, self.j1 = ds, j0, j1
 
-    def data_setup(self, ud1_array, ud2_array, normalize =False):
+    def data_setup(self, ud1_array, ud2_array, normalize =False, noise_level = None):
         if normalize:
             data1 = data_normalization(ud1_array, self.normalized_mean1, ud1_array.ptp())
             data2 = data_normalization(ud2_array, self.normalized_mean2, ud2_array.ptp())
@@ -499,6 +613,10 @@ class dual_data_run():
 
         self.ud1 = ud1
         self.ud2 = ud2
+        # print(ud2.compute_vertex_values())
+
+        if noise_level is not None:
+            self.noise_level = noise_level
     
     def f_setup(self, f_type #'type of forcing: str or ndarray'
                 ):
@@ -520,8 +638,11 @@ class dual_data_run():
                 c, #'constant of armijo linesearch',
                 maxiter, #'maximum newton"s step',
                 save_opt_log = True,
+                opt_csv_name = None,
                 plot_opt_step = False,
                 plot_eigval = False,
+                modified_reg = False,
+                cost_tol_check = True,
                 ):
         # initialize iter counters
         iter = 1
@@ -539,13 +660,37 @@ class dual_data_run():
         self.R.init_vector(m_delta,0)
         self.R.init_vector(g,0)
 
+        self.save_dict = {'nx': np.nan,
+                    'gamma_val': np.nan,
+                    'misfit': np.nan,
+                    'reg': np.nan,
+                    'u_sol1': np.nan,
+                    'u_d1': np.nan,
+                    'u_sol2': np.nan,
+                    'u_d2': np.nan,
+                    'm_sol': np.nan,
+                    'forcing': np.nan,
+                    'g1': np.nan,
+                    'g2': np.nan,
+                    'gradnorm': np.nan,
+                    'gradnorm_list': np.nan,
+                    'u_oce1': np.nan,
+                    'u_oce2': np.nan,
+                    'mtrue': np.nan,
+                    'noise_level': np.nan,
+                    'run_time': np.nan
+                    }
+
         ## create log path for optimization
         if save_opt_log:
+            ## make sure opt name is set if save_opt_log
+            if opt_csv_name is None:
+                raise ValueError('Must provide a name for the optimization log file if save_opt_log is True')
+            
             log_path = self.save_path / 'log_opt/'
             if not log_path.exists():
                 log_path.mkdir()
             
-            opt_csv_name = f'{self.gamma:1.3e}_opt_log.csv'
             csv_path = log_path / opt_csv_name
             if os.path.exists(csv_path):
                 pass
@@ -553,10 +698,12 @@ class dual_data_run():
                 import csv
                 with open(csv_path, 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'alpha', 'toldcg'])
+                    writer.writerow(['Nit', 'CGit', 'cost', 'misfit', 'reg', 'sqrt(-G*D)', '||grad||', 'rel_gradnorm', 'alpha', 'toldcg', 'gauss_newt', 'm_sol', 'u_sol1', 'u_sol2'])
 
-        print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||       alpha  tolcg")
+        print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      GaussNewt      min|yTHx - xTHy|")
         gradnorm_list = []
+        start_time = time.time()
+
         # try:
         while iter <  maxiter and not converged:
             p1, p2, adjoint_A1, _, adjoint_A2, _ = self.adj_solve(m, u1, u2)
@@ -565,9 +712,6 @@ class dual_data_run():
             Wum_equ1, C_equ1, Wmm_equ1, Wum_equ2, C_equ2, Wmm_equ2, M_equ = self.wf_matrices_setup(m,u1, u2, p1, p2)
             C1 =  dl.assemble(C_equ1)
             C2 =  dl.assemble(C_equ2)
-
-            # print(np.linalg.norm(C1.array()))
-            # print(np.linalg.norm(C2.array()))
 
             # assemble matrix M
             if iter == 1:
@@ -580,12 +724,6 @@ class dual_data_run():
             Wum2 = dl.assemble (Wum_equ2)
             Wmm2 = dl.assemble (Wmm_equ2)
 
-            # print(np.linalg.norm(Wum1.array()))
-            # print(np.linalg.norm(Wmm1.array()))
-
-            # print(np.linalg.norm(Wum2.array()))
-            # print(np.linalg.norm(Wmm2.array()))
-
             # evaluate the  gradient
             CT_p = dl.Vector()
             CT_p1 = dl.Vector()
@@ -595,13 +733,23 @@ class dual_data_run():
 
             C1.transpmult(p1.vector(), CT_p1)
             C2.transpmult(p2.vector(), CT_p2)
-            # print(np.linalg.norm(CT_p1.get_local()))
-            # print(np.linalg.norm(CT_p2.get_local()))
-            CT_p.axpy(1., CT_p1)
-            CT_p.axpy(1., CT_p2)
+            CT_p.axpy(self.beta1.values(), CT_p1)
+            CT_p.axpy(self.beta2.values(), CT_p2)
 
-            MG = CT_p + self.R * m.vector()
-            dl.solve(self.M, g, MG)
+            # Here I have the regularization of grad(m - m_prev)
+            if modified_reg:
+                if iter == 1:
+                    MG = CT_p + self.R * m.vector() 
+                else:
+                    print("Modified regularization m_k+1 - m_k")
+                    CT_p + self.R * (m.vector() - m_prev.vector())
+            else:
+                MG = CT_p + self.R * m.vector()
+            if iter == 1:
+                M = self.M.copy()
+            self.bc_adj.apply(MG)
+            self.bc_adj.apply(M)
+            dl.solve(M, g, MG)
 
             # calculate the norm of the gradient
             grad2 = g.inner(MG)
@@ -612,38 +760,51 @@ class dual_data_run():
                 gradnorm_ini = gradnorm
             
             gradnorm_rel = gradnorm / gradnorm_ini
-            tolcg = min(0.5, (gradnorm_rel))
-
+            tolcg = min(0.5, max(gradnorm_rel,1e-9))
+ 
             # define the Hessian apply operator (with preconditioner)
             from utils.hessian_operator import HessianOperator_comb as HessianOperator
-            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, 
-                                         Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=(iter<6))
+            gauss_newt = (iter < 6) # if iter < 6, use gauss newton
+            Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=gauss_newt, beta1=self.beta1, beta2=self.beta2)
+            # Hess_Apply = HessianOperator(self.R, self.W, Wmm1, C1, state_A1, adjoint_A1, Wum1, Wmm2, C2, state_A2, adjoint_A2, Wum2, self.bc_adj, gauss_newton_approx=False, beta1=self.beta1, beta2=self.beta2)
             self.Hess = Hess_Apply
-        
-            # P = self.R + self.gamma * M
+
+            # Plot eigenvalues
+            if iter % 1 == 0 and plot_eigval:
+                k = 30
+                lmbda, _ = self.eigenvalue_request(m, p=20, k=k)
+                plt.semilogy((lmbda[:k]), 'o-', label=f'iter {iter}')
+                plt.plot((0,k), (1,1), '-r')
+                plt.legend()
+                plt.xticks(range(k+1),[str(i) for i in range(1,k+2)])
+                plt.show()
+                print ("Nit   CGit   cost          misfit        reg         rel_gradnorm    (G*D)/(l)       ||grad||       alpha      tolcg      GaussNewt      min|yTHx - xTHy|")
+
             P = self.R + self.gamma * self.M
+            self.bc_adj.apply(P)
+            # get indentity matrix for preconditioner
+            I = P.copy()
+            I.zero()
+            I.set_diagonal(dl.interpolate(dl.Constant(1), self.Vu).vector())
             Psolver = dl.PETScKrylovSolver("cg", amg_method())
             Psolver.set_operator(P)
+            # Psolver.set_operator(I)
 
-            if iter == 1: 
-                k = self.nx
-                p = 20
-
-                import hippylib as hp
-                Omega = hp.MultiVector(m.vector(), k + p)
-                hp.parRandom.normal(1., Omega)
-                self.lmbda, _ = hp.doublePassG(Hess_Apply, P, Psolver, Omega, k)
 
             solver = CGSolverSteihaug()
             solver.set_operator(Hess_Apply)
             solver.set_preconditioner(Psolver)
             solver.parameters["rel_tolerance"] = tolcg
+            # solver.parameters["abs_tolerance"] = 1e-2
             solver.parameters["zero_initial_guess"] = True
             solver.parameters["print_level"] = -1
             
             solver.solve(m_delta, -MG)
-            total_cg_iter += Hess_Apply.cgiter
+            # print(m_delta.get_local()[0:2],m_delta.get_local()[-2:])
+            # total_cg_iter += Hess_Apply.cgiter
+            total_cg_iter += solver.iter
 
+            test_mdelta = m_delta.get_local()
             # linesearch
             alpha = 1
             descent = 0
@@ -670,14 +831,6 @@ class dual_data_run():
                     no_backtrack += 1
                     alpha *= 0.5
                     m.assign(m_prev)  # reset a
-                # alpha = 0.5
-            
-            if plot_eigval:
-                lmbda, evec = self.eigenvalue_request(m)
-                idx = 10
-                # plt.semilogy(lmbda[:idx], '*')
-                plt.plot(evec[0])
-                plt.show()
             
             ## Plot opt step
             if plot_opt_step:
@@ -685,32 +838,7 @@ class dual_data_run():
                 plot_step(u1.compute_vertex_values(), u2.compute_vertex_values(), 
                           self.ud1.compute_vertex_values(), self.ud2.compute_vertex_values(), 
                           m.compute_vertex_values(), self.mtrue.compute_vertex_values(), self.gamma,0.5,0.5)
-                print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||      ||grad_rel||     alpha  tolcg")
-            
-            ## Optimization of beta1 and beta2
-            # diff1 = u1.vector() - self.ud1.vector()
-            # diff2 = u2.vector() - self.ud2.vector()
-            # diff1_scalar = diff1.inner(self.W * diff1)
-            # diff2_scalar = diff2.inner(self.W * diff2)
-
-            # reg_for_beta_opt = dl.assemble(ufl.inner(ufl.grad(m), ufl.grad(m)) * ufl.dx)
-
-            # def betas_func(x):
-            #     gamma = np.exp(x[0]*np.log(self.gamma1) + x[1]*np.log(self.gamma2))
-            #     misfit_val = x[0] * diff1_scalar + x[1] * diff2_scalar
-            #     reg_val = gamma * reg_for_beta_opt
-            #     return 0.5 * misfit_val + 0.5 * reg_val
-            
-            # def constraint(x):
-            #     return x[0] + x[1] - 1
-            # bounds = [(0.1, 0.9), (0.1, 0.9)]
-            # constraints = ({'type': 'eq', 'fun': constraint})
-            # x0 = np.array([self.beta1.values()[0], self.beta2.values()[0]])
-            # res = minimize(betas_func, x0, tol=1e-12, constraints=constraints, bounds=bounds)
-            # beta1, beta2 = res.x
-            # print("beta1, beta2: ", res.x)
-            # print(sum(res.x))
-            # self.misfit_reg_setup(beta1=0.5, beta2=0.5)
+                print ("Nit   CGit   cost          misfit        reg           sqrt(-G*D)    ||grad||      ||grad_rel||     |yTHx - xTHy|     alpha  tolcg")
 
 
             # calculate sqrt(-G * D)
@@ -719,15 +847,24 @@ class dual_data_run():
             sp = ""
             gradnorm_list += [gradnorm]
             # print opt log and write opt log
+            sym_val = 0.0 # Hess_Apply.hess_sym_check(self.Vm)
+            print(f"{iter:2d} {sp:2s} {solver.iter:2d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {Hess_Apply.gauss_newton_approx} {sp:1s} {tolcg:5.3e} {sp:1s} {sym_val:1.3e}")
             if save_opt_log:
-                with open(csv_path, 'a') as f:
-                    writer = csv.writer(f)
-                    writer.writerow([iter, self.Hess.cgiter, cost_new, misfit_new, reg_new, graddir, gradnorm, alpha, tolcg])
-            print(f"{iter:2d} {sp:2s} {self.Hess.cgiter:3d} {sp:1s} {cost_new:8.5e} {sp:1s} {misfit_new:8.5e} {sp:1s} {reg_new:8.5e} {sp:1s} {graddir:8.5e} {sp:1s} {gradnorm:8.5e} {sp:1s} {gradnorm_rel:8.5e} {sp:1s} {alpha:1.2e} {sp:1s} {tolcg:5.3e}")
+                with open(csv_path, 'a') as file:
+                    writer = csv.writer(file)
+                    writer.writerow([iter, solver.iter, cost_new, misfit_new, reg_new, graddir, gradnorm, gradnorm_rel, alpha, tolcg, gauss_newt, m.compute_vertex_values().tolist(), u1.compute_vertex_values().tolist(), u2.compute_vertex_values().tolist()])
+            if cost_tol_check:
+                if iter > 1:
+                    diff = cost_prev_iter - cost_new 
+                    # print(diff)
+                    if diff < 1e-10:
+                        converged = True
+                        print( "Newton's method converged in ",iter,"  iterations due to small change in cost")
+            cost_prev_iter = cost_new
 
             if alpha < 1e-3:
                 alpha_iter += 1
-            if alpha_iter > 10:
+            if alpha_iter > 20:
                 print('Alpha too small: ')
                 break
 
@@ -741,7 +878,11 @@ class dual_data_run():
         if not converged:
             print( "Newton's method did not converge in ", maxiter, " iterations")
         
-        self.save_dict = {'gamma_val': self.gamma,
+        run_time = time.time() - start_time
+        print("Run time: ", run_time)
+
+        self.save_dict = {'nx': self.nx,
+                    'gamma_val': self.gamma,
                     'misfit': misfit_old,
                     'reg': reg_old,
                     'u_sol1': u1.compute_vertex_values().tolist(),
@@ -750,26 +891,34 @@ class dual_data_run():
                     'u_d2': self.ud2.compute_vertex_values().tolist(),
                     'm_sol': m.compute_vertex_values().tolist(),
                     'forcing': self.f.compute_vertex_values(self.mesh).tolist(),
+                    'g1': self.g1.compute_vertex_values().tolist(),
+                    'g2': self.g2.compute_vertex_values().tolist(),
                     'gradnorm': gradnorm,
                     'gradnorm_list': gradnorm_list,
                     'u_oce1': self.u_oce1,
                     'u_oce2': self.u_oce2,
+                    # 'm_true': self.mtrue.compute_vertex_values().tolist(),
+                    # 'noise_level': self.noise_level,
+                    'run_time': run_time,
                     }
 
         if hasattr(self, 'mtrue'):
             self.save_dict['m_true'] = self.mtrue.compute_vertex_values().tolist()
+
+        if hasattr(self, 'noise_level'):
+            self.save_dict['noise_level'] = self.noise_level
         
         return m, u1, u2
 
     def wf_matrices_setup(self,m, u1, u2, p1, p2):
         # weak form for setting up matrices
-        Wum_equ1 = self.beta1 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p1)) * ufl.dx
-        C_equ1   = self.beta1 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u1), ufl.grad(self.u_test)) * ufl.dx
-        Wmm_equ1 = self.beta1 * ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u1),  ufl.grad(p1)) * ufl.dx
+        Wum_equ1 = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p1)) * ufl.dx
+        C_equ1   = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u1), ufl.grad(self.u_test)) * ufl.dx
+        Wmm_equ1 = ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u1),  ufl.grad(p1)) * ufl.dx
 
-        Wum_equ2 = self.beta2 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p2)) * ufl.dx
-        C_equ2   = self.beta2 * ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u2), ufl.grad(self.u_test)) * ufl.dx
-        Wmm_equ2 = self.beta2 * ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u2),  ufl.grad(p2)) * ufl.dx
+        Wum_equ2 = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(self.p_test), ufl.grad(p2)) * ufl.dx
+        C_equ2   = ufl.inner(ufl.exp(m) * self.m_trial * ufl.grad(u2), ufl.grad(self.u_test)) * ufl.dx
+        Wmm_equ2 = ufl.inner(ufl.exp(m) * self.m_trial * self.m_test *  ufl.grad(u2),  ufl.grad(p2)) * ufl.dx
 
         M_equ   = ufl.inner(self.m_trial, self.m_test) * ufl.dx
 
@@ -785,14 +934,15 @@ class dual_data_run():
         misfit = beta1 * diff1.inner(self.W * diff1) + beta2 * diff2.inner(self.W * diff2)
         return [0.5 * reg + 0.5 * misfit, misfit, reg]
 
-    def eigenvalue_request(self, m, p=20):
-        k = self.nx
-        P = self.R + self.gamma * self.M * 1e-3
-        Psolver = dl.PETScKrylovSolver("cg", amg_method())
-        Psolver.set_operator(P)
+    def eigenvalue_request(self, m, p=20, k = None):
+        if k == None:
+            k = self.nx
+        P = self.R + self.gamma * self.M * 1e-3 # Adding tiny mass matrix to ensure invertibility
+        Psolver = dl.PETScKrylovSolver("cg", amg_method()) # krylov method
+        Psolver.set_operator(P) # this is going to be my B and B_inv for double pass G
 
         import hippylib as hp
-        Omega = hp.MultiVector(m.vector(), k + p)
-        hp.parRandom.normal(1., Omega)
-        lmbda, evecs = hp.doublePassG(self.Hess, P, Psolver, Omega, k)
+        Omega = hp.MultiVector(m.vector(), k + p) # creat this reandom (n x k+p) matrix
+        hp.parRandom.normal(1., Omega) # randomize the matrix with Gaussian distribution
+        lmbda, evecs = hp.doublePassG(self.Hess, P, Psolver, Omega, k) # obtain eigenvalues and eigenvectors
         return lmbda, evecs

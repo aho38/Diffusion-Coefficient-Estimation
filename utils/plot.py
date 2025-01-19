@@ -62,3 +62,16 @@ def plot_step_single(u1, ud1, m, m_true = None, gamma = 0):
 
     # plt.savefig(f'./log/img/dual_helm_synth_{beta1:1.1f}_{beta2:1.1f}.eps', format='eps',dpi=250)
     plt.show()
+
+def plot_mean_shaded(rbest, nfe, color, label=None, title=None, ylabel="R best", xlabel="Number of function evaluations", xlim=None, shade=True, **kwargs):
+    if xlim is not None:
+        plt.xlim(xlim)
+    
+    mean = rbest.mean(axis=1)
+    std = rbest.std(axis=1)
+    plt.plot(nfe, rbest.mean(axis=1), color=color, label=label, **kwargs)
+    plt.fill_between(nfe, mean - std, mean + std, alpha=0.25, color=color) if shade else None
+    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.xlabel(xlabel, fontsize = 12)
+    plt.ylabel(ylabel, fontsize = 12)
+    plt.title(title)
