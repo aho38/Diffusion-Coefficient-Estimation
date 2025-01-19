@@ -1,1 +1,1 @@
-# Diffusion-Coefficient-Estimation
+# Diffusion Coefficient Estimation
